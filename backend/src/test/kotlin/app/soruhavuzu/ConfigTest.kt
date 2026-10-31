@@ -39,6 +39,11 @@ class ConfigTest {
     }
 
     @Test
+    fun `kisa jwt anahtari reddedilir`() {
+        assertFailsWith<IllegalArgumentException> { JwtConfig(secret = "kisa") }
+    }
+
+    @Test
     fun `desteklenmeyen sema reddedilir`() {
         assertFailsWith<IllegalArgumentException> {
             parseDatabaseUrl("mysql://a:b@localhost/dev", null, null, 5)

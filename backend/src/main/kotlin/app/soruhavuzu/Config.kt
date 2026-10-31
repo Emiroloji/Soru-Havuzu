@@ -9,10 +9,21 @@ data class DatabaseConfig(
     val maxPoolSize: Int
 )
 
+data class JwtConfig(
+    val secret: String,
+    val issuer: String = "soruhavuzu",
+    val validityDays: Long = 30
+) {
+    init {
+        require(secret.length >= 32) { "JWT_SECRET en az 32 karakter olmalı" }
+    }
+}
+
 data class AppConfig(
     val port: Int,
     val uploadDir: String,
-    val database: DatabaseConfig
+    val database: DatabaseConfig,
+    val jwt: JwtConfig
 ) {
     companion object {
         fun fromEnv(env: Map<String, String> = System.getenv()): AppConfig {
@@ -27,7 +38,8 @@ data class AppConfig(
                     user = env["DATABASE_USER"],
                     password = env["DATABASE_PASSWORD"],
                     maxPoolSize = env["DATABASE_POOL_SIZE"]?.toIntOrNull() ?: 5
-                )
+                ),
+                jwt = JwtConfig(secret = required("JWT_SECRET"))
             )
         }
     }

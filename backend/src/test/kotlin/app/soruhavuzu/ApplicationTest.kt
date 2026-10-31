@@ -12,7 +12,7 @@ class ApplicationTest {
 
     @Test
     fun `health veritabani ayaktaysa 200 doner`() = testApplication {
-        application { module(healthCheck = { true }) }
+        application { module(testServices(healthCheck = { true })) }
 
         val response = client.get("/health")
 
@@ -22,7 +22,7 @@ class ApplicationTest {
 
     @Test
     fun `health veritabani duserse 503 doner`() = testApplication {
-        application { module(healthCheck = { false }) }
+        application { module(testServices(healthCheck = { false })) }
 
         val response = client.get("/health")
 
