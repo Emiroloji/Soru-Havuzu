@@ -1,0 +1,21 @@
+# Dokploy için: Compose servisi olarak ekle, compose path = backend/docker-compose.yml.
+# Veritabanı Dokploy'da ayrı bir Postgres servisi; ona dokploy-network üzerinden bağlanılır.
+# Domain ve HTTPS Dokploy arayüzünden (Domains sekmesi, port 8080) verilir; burada port açılmaz.
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
+    volumes:
+      - uploads:/data/uploads
+    networks:
+      - dokploy-network
+
+volumes:
+  uploads:
+
+networks:
+  dokploy-network:
+    external: true

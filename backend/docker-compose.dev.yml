@@ -1,0 +1,17 @@
+# Yerel geliştirme için tek komutluk Postgres:
+#   docker compose -f docker-compose.dev.yml up -d
+# Sonra: DATABASE_URL=postgresql://soru:soru@localhost:5432/soruhavuzu_dev ./gradlew run
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: soru
+      POSTGRES_PASSWORD: soru
+      POSTGRES_DB: soruhavuzu_dev
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - dev-db:/var/lib/postgresql/data
+
+volumes:
+  dev-db:
