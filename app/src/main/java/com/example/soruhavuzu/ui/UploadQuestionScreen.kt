@@ -456,6 +456,60 @@ fun UploadQuestionScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
+                    // Live Question Card Preview (S8: Canlı Önizleme)
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("upload_live_preview_card")
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "CANLI SORU KARTI ÖNİZLEMESİ",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Surface(
+                                    color = ratingColor,
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Zorluk $uploaderRating/10",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = bodyText.ifBlank { "Soru metni yazdığınızda burada öğrencinin göreceği şekilde canlı önizlenir..." },
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            val optionLabels = listOf("A", "B", "C", "D", "E")
+                            options.forEachIndexed { idx, opt ->
+                                if (opt.isNotBlank() || idx < 2) {
+                                    val prefix = if (idx == correctOptionIndex) "✓" else "○"
+                                    Text(
+                                        text = "$prefix ${optionLabels.getOrElse(idx) { "" }}) ${opt.ifBlank { "..." }}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (idx == correctOptionIndex) Color(0xFF059669) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
                     Button(
                         onClick = {
                             onSubmitQuestion(

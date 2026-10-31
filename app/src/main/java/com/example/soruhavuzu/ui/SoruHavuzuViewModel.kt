@@ -591,6 +591,33 @@ class SoruHavuzuViewModel(
         }
     }
 
+    fun completeOnboarding(
+        nickname: String,
+        email: String,
+        authProvider: String,
+        targetExam: String,
+        birthYear: Int,
+        initialSelfLevel: Int
+    ) {
+        viewModelScope.launch {
+            repository.completeOnboarding(
+                nickname = nickname,
+                email = email,
+                authProvider = authProvider,
+                targetExam = targetExam,
+                birthYear = birthYear,
+                initialSelfLevel = initialSelfLevel
+            )
+            controlState.update {
+                it.copy(
+                    selectedMinBucket = initialSelfLevel.coerceIn(1, 10),
+                    selectedMaxBucket = initialSelfLevel.coerceIn(1, 10),
+                    statusBannerMessage = "Hoş geldin $nickname! Hedef sınavın ($targetExam) ve başlangıç seviyen ($initialSelfLevel/10) kaydedildi."
+                )
+            }
+        }
+    }
+
     fun updateUserSettings(
         nickname: String,
         targetExam: String,

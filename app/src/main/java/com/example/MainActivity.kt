@@ -2,7 +2,6 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
@@ -20,17 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddCircle
-import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Gavel
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.outlined.AddCircleOutline
-import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Gavel
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +32,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -53,18 +44,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import androidx.room.Room
-import com.example.soruhavuzu.data.SessionType
 import com.example.soruhavuzu.data.SoruHavuzuDatabase
 import com.example.soruhavuzu.data.SoruHavuzuRepository
-import com.example.soruhavuzu.ui.HomePoolScreen
-import com.example.soruhavuzu.ui.MainTab
-import com.example.soruhavuzu.ui.ModerationPanelScreen
-import com.example.soruhavuzu.ui.ProfileAndDockerScreen
-import com.example.soruhavuzu.ui.SavedReviewScreen
-import com.example.soruhavuzu.ui.SolveSessionScreen
+import com.example.soruhavuzu.navigation.BottomNavDestination
+import com.example.soruhavuzu.navigation.SoruHavuzuNavHost
+import com.example.soruhavuzu.navigation.SoruHavuzuRoutes
+import com.example.soruhavuzu.navigation.navigateTopLevel
 import com.example.soruhavuzu.ui.SoruHavuzuViewModel
-import com.example.soruhavuzu.ui.UploadQuestionScreen
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -99,118 +88,91 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SoruHavuzuApp(viewModel: SoruHavuzuViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    // Sub-tabs navigate back to HOME_POOL
-    if (uiState.activeSession == null && uiState.currentTab != MainTab.HOME_POOL) {
-        BackHandler {
-            viewModel.selectTab(MainTab.HOME_POOL)
-        }
-    }
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route ?: SoruHavuzuRoutes.ROUTE_HOME
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            if (uiState.activeSession == null) {
-                TopAppBar(
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "SoruHavuzu",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
                             Text(
-                                text = "SoruHavuzu",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold
+                                text = "Elo/Rasch v1",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = "Elo/Rasch v1",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
-                    )
+                    }
+                },
+                actions = {
+                    if (currentRoute != SoruHavuzuRoutes.ROUTE_ONBOARDING) {
+                        TextButton(
+                            onClick = {
+                                navController.navigateTopLevel(SoruHavuzuRoutes.ROUTE_ONBOARDING)
+                            },
+                            modifier = Modifier.testTag("top_bar_onboarding_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.School,
+                                contentDescription = "Hedef ve Onboarding"
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Onboarding")
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
                 )
-            }
+            )
         },
         bottomBar = {
-            if (uiState.activeSession == null) {
-                NavigationBar {
+            NavigationBar(modifier = Modifier.testTag("main_bottom_navigation")) {
+                BottomNavDestination.entries.forEach { destination ->
+                    val isSelected = currentRoute == destination.route
                     NavigationBarItem(
-                        selected = uiState.currentTab == MainTab.HOME_POOL,
-                        onClick = { viewModel.selectTab(MainTab.HOME_POOL) },
-                        icon = {
-                            Icon(
-                                imageVector = if (uiState.currentTab == MainTab.HOME_POOL) Icons.Filled.Home else Icons.Outlined.Home,
-                                contentDescription = "Soru Havuzu"
-                            )
+                        selected = isSelected,
+                        onClick = {
+                            navController.navigateTopLevel(destination.route)
                         },
-                        label = { Text("Havuz") },
-                        modifier = Modifier.testTag("nav_tab_home")
-                    )
-                    NavigationBarItem(
-                        selected = uiState.currentTab == MainTab.UPLOAD,
-                        onClick = { viewModel.selectTab(MainTab.UPLOAD) },
                         icon = {
-                            Icon(
-                                imageVector = if (uiState.currentTab == MainTab.UPLOAD) Icons.Filled.AddCircle else Icons.Outlined.AddCircleOutline,
-                                contentDescription = "Soru Yükle"
-                            )
-                        },
-                        label = { Text("Soru Yükle") },
-                        modifier = Modifier.testTag("nav_tab_upload")
-                    )
-                    NavigationBarItem(
-                        selected = uiState.currentTab == MainTab.SAVED_REVIEW,
-                        onClick = { viewModel.selectTab(MainTab.SAVED_REVIEW) },
-                        icon = {
-                            Icon(
-                                imageVector = if (uiState.currentTab == MainTab.SAVED_REVIEW) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                                contentDescription = "Tekrar ve Favori"
-                            )
-                        },
-                        label = { Text("Yanlışlarım") },
-                        modifier = Modifier.testTag("nav_tab_saved")
-                    )
-                    NavigationBarItem(
-                        selected = uiState.currentTab == MainTab.MODERATION,
-                        onClick = { viewModel.selectTab(MainTab.MODERATION) },
-                        icon = {
-                            BadgedBox(
-                                badge = {
-                                    val count = uiState.moderationQueueQuestions.size
-                                    if (count > 0) {
-                                        Badge { Text("$count") }
+                            if (destination == BottomNavDestination.MODERATION) {
+                                BadgedBox(
+                                    badge = {
+                                        val count = uiState.moderationQueueQuestions.size
+                                        if (count > 0) {
+                                            Badge { Text("$count") }
+                                        }
                                     }
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
+                                        contentDescription = destination.labelTr
+                                    )
                                 }
-                            ) {
+                            } else {
                                 Icon(
-                                    imageVector = if (uiState.currentTab == MainTab.MODERATION) Icons.Filled.Gavel else Icons.Outlined.Gavel,
-                                    contentDescription = "Moderasyon"
+                                    imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
+                                    contentDescription = destination.labelTr
                                 )
                             }
                         },
-                        label = { Text("Denetim") },
-                        modifier = Modifier.testTag("nav_tab_moderation")
-                    )
-                    NavigationBarItem(
-                        selected = uiState.currentTab == MainTab.PROFILE,
-                        onClick = { viewModel.selectTab(MainTab.PROFILE) },
-                        icon = {
-                            Icon(
-                                imageVector = if (uiState.currentTab == MainTab.PROFILE) Icons.Filled.Person else Icons.Outlined.Person,
-                                contentDescription = "Profil ve Sistem"
-                            )
-                        },
-                        label = { Text("Profil") },
-                        modifier = Modifier.testTag("nav_tab_profile")
+                        label = { Text(destination.labelTr, maxLines = 1) },
+                        modifier = Modifier.testTag(destination.testTag)
                     )
                 }
             }
@@ -262,89 +224,13 @@ fun SoruHavuzuApp(viewModel: SoruHavuzuViewModel) {
                     }
                 }
 
-                val activeSession = uiState.activeSession
-                if (activeSession != null) {
-                    SolveSessionScreen(
-                        session = activeSession,
-                        userTheta = uiState.userProfile?.globalTheta ?: 0.25,
-                        onSelectOption = viewModel::selectOptionInSession,
-                        onSubmitAnswer = viewModel::submitCurrentAnswer,
-                        onNextQuestion = viewModel::proceedToNextQuestion,
-                        onExpandToNeighborRange = viewModel::expandSessionToSuggestedRange,
-                        onToggleFavorite = viewModel::toggleFavorite,
-                        onReportQuestion = viewModel::reportQuestion,
-                        onFinishSession = viewModel::finishSessionSummary,
-                        onCloseSession = viewModel::closeSession
-                    )
-                } else {
-                    when (uiState.currentTab) {
-                        MainTab.HOME_POOL -> {
-                            HomePoolScreen(
-                                uiState = uiState,
-                                onSelectSingleBucket = viewModel::selectSingleDifficultyBucket,
-                                onSelectRange = viewModel::selectDifficultyRange,
-                                onSelectTopic = viewModel::selectTopic,
-                                onToggleIncludeSolved = viewModel::toggleIncludeSolved,
-                                onStartPractice = {
-                                    viewModel.startSession(SessionType.PRACTICE)
-                                },
-                                onStartChallenge = {
-                                    viewModel.startSession(SessionType.CHALLENGE)
-                                },
-                                onStartReview = {
-                                    viewModel.startSession(SessionType.REVIEW)
-                                },
-                                onOpenQuestionDirect = { bucket ->
-                                    viewModel.selectSingleDifficultyBucket(bucket)
-                                    viewModel.startSession(
-                                        sessionType = SessionType.PRACTICE,
-                                        minBucketOverride = bucket,
-                                        maxBucketOverride = bucket
-                                    )
-                                }
-                            )
-                        }
-
-                        MainTab.UPLOAD -> {
-                            UploadQuestionScreen(
-                                uiState = uiState,
-                                onSanitizeImage = viewModel::processPickedImage,
-                                onSubmitQuestion = viewModel::submitNewQuestion
-                            )
-                        }
-
-                        MainTab.SAVED_REVIEW -> {
-                            SavedReviewScreen(
-                                uiState = uiState,
-                                onStartReviewSession = {
-                                    viewModel.startSession(SessionType.REVIEW)
-                                },
-                                onRemoveFromWrongNotes = viewModel::removeFromWrongNotes,
-                                onToggleFavorite = viewModel::toggleFavorite
-                            )
-                        }
-
-                        MainTab.MODERATION -> {
-                            ModerationPanelScreen(
-                                uiState = uiState,
-                                onApproveQuestion = viewModel::approveQuestionInModeration,
-                                onRemoveQuestion = viewModel::removeQuestionInModeration,
-                                onCreateNewVersion = viewModel::createNewQuestionVersion
-                            )
-                        }
-
-                        MainTab.PROFILE -> {
-                            ProfileAndDockerScreen(
-                                uiState = uiState,
-                                onSaveSettings = viewModel::updateUserSettings,
-                                onTestDocker = viewModel::testDockerConnection,
-                                onExportData = viewModel::exportUserDataJson,
-                                onDismissExportDialog = viewModel::dismissExportedJsonDialog,
-                                onResetAccount = viewModel::resetAccountData
-                            )
-                        }
-                    }
-                }
+                SoruHavuzuNavHost(
+                    navController = navController,
+                    viewModel = viewModel,
+                    uiState = uiState,
+                    startDestination = SoruHavuzuRoutes.ROUTE_HOME,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }

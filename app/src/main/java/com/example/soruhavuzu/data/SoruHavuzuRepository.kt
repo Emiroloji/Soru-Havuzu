@@ -588,6 +588,30 @@ class SoruHavuzuRepository(
         }
     }
 
+    suspend fun completeOnboarding(
+        nickname: String,
+        email: String,
+        authProvider: String,
+        targetExam: String,
+        birthYear: Int,
+        initialSelfLevel: Int
+    ) = withContext(Dispatchers.IO) {
+        val current = dao.getUserProfile()
+        val initialTheta = CalibrationEngine.initialLogitFromUploaderRating(initialSelfLevel, 0.0)
+        if (current != null) {
+            dao.insertUserProfile(
+                current.copy(
+                    nickname = nickname,
+                    email = "$email ($authProvider)",
+                    targetExam = targetExam,
+                    birthYear = birthYear,
+                    globalTheta = initialTheta,
+                    onboardingCompleted = true
+                )
+            )
+        }
+    }
+
     suspend fun updateUserProfileSettings(
         nickname: String,
         targetExam: String,

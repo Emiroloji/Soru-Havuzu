@@ -541,7 +541,8 @@ fun ProfileAndDockerScreen(
     onTestDocker: (String) -> Unit,
     onExportData: () -> Unit,
     onDismissExportDialog: () -> Unit,
-    onResetAccount: () -> Unit
+    onResetAccount: () -> Unit,
+    onReopenOnboarding: () -> Unit = {}
 ) {
     val profile = uiState.userProfile ?: return
     var nickname by remember(profile.nickname) { mutableStateOf(profile.nickname) }
@@ -772,6 +773,16 @@ fun ProfileAndDockerScreen(
                             .testTag("save_profile_settings_button")
                     ) {
                         Text("Profil ve Sunucu Ayarlarını Kaydet")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onReopenOnboarding,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("open_onboarding_from_profile_button")
+                    ) {
+                        Text("Onboarding & Giriş / Hedef Kurulum Ekranını Aç")
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
