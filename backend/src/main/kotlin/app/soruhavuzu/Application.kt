@@ -5,8 +5,10 @@ import app.soruhavuzu.auth.AUTH_RATE_LIMIT
 import app.soruhavuzu.auth.AuthUser
 import app.soruhavuzu.auth.PasswordHasher
 import app.soruhavuzu.auth.TokenService
-import app.soruhavuzu.auth.ValidationException
 import app.soruhavuzu.auth.authRoutes
+import app.soruhavuzu.questions.PostgresQuestionStore
+import app.soruhavuzu.questions.QuestionStore
+import app.soruhavuzu.questions.questionRoutes
 import app.soruhavuzu.users.DuplicateUserException
 import app.soruhavuzu.users.PostgresUserStore
 import app.soruhavuzu.users.UserStore
@@ -44,6 +46,7 @@ fun main() {
     val services = Services(
         healthCheck = DatabaseHealthCheck(dataSource),
         users = PostgresUserStore(dataSource),
+        questions = PostgresQuestionStore(dataSource),
         hasher = PasswordHasher(),
         tokens = TokenService(config.jwt)
     )
@@ -57,6 +60,7 @@ fun main() {
 class Services(
     val healthCheck: HealthCheck,
     val users: UserStore,
+    val questions: QuestionStore,
     val hasher: PasswordHasher,
     val tokens: TokenService,
     val authRequestsPerMinute: Int = 10
@@ -96,6 +100,12 @@ fun Application.module(services: Services) {
         exception<ValidationException> { call, cause ->
             call.respond(HttpStatusCode.BadRequest, ErrorResponse(cause.message ?: "Geçersiz istek"))
         }
+        exception<NotFoundException> { call, cause ->
+            call.respond(HttpStatusCode.NotFound, ErrorResponse(cause.message ?: "Bulunamadı"))
+        }
+        exception<ForbiddenException> { call, cause ->
+            call.respond(HttpStatusCode.Forbidden, ErrorResponse(cause.message ?: "Bu işlem için yetkin yok"))
+        }
         exception<BadRequestException> { call, _ ->
             call.respond(HttpStatusCode.BadRequest, ErrorResponse("İstek gövdesi eksik veya hatalı"))
         }
@@ -121,5 +131,6 @@ fun Application.module(services: Services) {
             )
         }
         authRoutes(services.users, services.hasher, services.tokens)
+        questionRoutes(services.questions)
     }
 }

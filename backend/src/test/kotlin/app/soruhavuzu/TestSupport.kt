@@ -2,6 +2,11 @@ package app.soruhavuzu
 
 import app.soruhavuzu.auth.PasswordHasher
 import app.soruhavuzu.auth.TokenService
+import app.soruhavuzu.questions.QuestionFilter
+import app.soruhavuzu.questions.QuestionStore
+import app.soruhavuzu.questions.SessionType
+import com.zaxxer.hikari.HikariDataSource
+import org.testcontainers.postgresql.PostgreSQLContainer
 import app.soruhavuzu.users.DuplicateUserException
 import app.soruhavuzu.users.NewUser
 import app.soruhavuzu.users.User
@@ -17,10 +22,12 @@ val testJwtConfig = JwtConfig(secret = "test-secret-en-az-otuz-iki-karakter-uzun
 fun testServices(
     healthCheck: HealthCheck = HealthCheck { true },
     users: UserStore = InMemoryUserStore(),
+    questions: QuestionStore = UnusedQuestionStore,
     authRequestsPerMinute: Int = 1000
 ) = Services(
     healthCheck = healthCheck,
     users = users,
+    questions = questions,
     // Testlerde düşük maliyet: bcrypt 12 her hash'te ~250 ms sürer
     hasher = PasswordHasher(cost = 4),
     tokens = TokenService(testJwtConfig),
@@ -29,6 +36,28 @@ fun testServices(
 
 fun ApplicationTestBuilder.jsonClient(): HttpClient = createClient {
     install(ContentNegotiation) { json() }
+}
+
+/** Soru uçlarını kullanmayan testler için; çağrılırsa test hatalı demektir. */
+object UnusedQuestionStore : QuestionStore {
+    private fun unused(): Nothing = error("Bu testte soru deposu kullanılmamalı")
+    override suspend fun catalog() = unused()
+    override suspend fun findForSolving(questionId: UUID, userId: UUID) = unused()
+    override suspend fun pickPractice(userId: UUID, filter: QuestionFilter, buckets: IntRange, includeSolved: Boolean) = unused()
+    override suspend fun pickChallenge(userId: UUID, filter: QuestionFilter) = unused()
+    override suspend fun submitAttempt(
+        userId: UUID, questionId: UUID, selectedOptionIndex: Int, responseTimeMs: Long, sessionType: SessionType
+    ) = unused()
+}
+
+/** Testcontainers ile tüm test sınıflarının paylaştığı tek Postgres; migration'lar bir kez çalışır. */
+object TestDatabase {
+    private val container by lazy { PostgreSQLContainer("postgres:17").also { it.start() } }
+
+    val dataSource: HikariDataSource by lazy {
+        Database.connect(DatabaseConfig(container.jdbcUrl, container.username, container.password, 8))
+            .also { Database.migrate(it) }
+    }
 }
 
 class InMemoryUserStore(private val examIds: Set<String> = setOf("exam_kpss")) : UserStore {

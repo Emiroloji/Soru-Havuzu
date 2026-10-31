@@ -1,6 +1,7 @@
 package app.soruhavuzu.auth
 
 import app.soruhavuzu.ErrorResponse
+import app.soruhavuzu.validate
 import app.soruhavuzu.users.NewUser
 import app.soruhavuzu.users.User
 import app.soruhavuzu.users.UserStore
@@ -20,8 +21,6 @@ import java.time.Year
 
 const val AUTH_JWT = "auth-jwt"
 val AUTH_RATE_LIMIT = RateLimitName("auth")
-
-class ValidationException(message: String) : RuntimeException(message)
 
 @Serializable
 data class RegisterRequest(
@@ -116,8 +115,4 @@ fun Route.authRoutes(users: UserStore, hasher: PasswordHasher, tokens: TokenServ
             }
         }
     }
-}
-
-private inline fun validate(condition: Boolean, message: () -> String) {
-    if (!condition) throw ValidationException(message())
 }

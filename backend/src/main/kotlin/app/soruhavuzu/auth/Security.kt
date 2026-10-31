@@ -14,8 +14,10 @@ class PasswordHasher(private val cost: Int = 12) {
     fun hash(password: String): String =
         BCrypt.withDefaults().hashToString(cost, password.toCharArray())
 
-    fun verify(password: String, hash: String): Boolean =
+    /** Geçersiz hash (ör. giriş yapamayan sistem kullanıcısının "!" değeri) her zaman false döner. */
+    fun verify(password: String, hash: String): Boolean = runCatching {
         BCrypt.verifyer().verify(password.toCharArray(), hash).verified
+    }.getOrDefault(false)
 
     /**
      * Kayıtlı olmayan e-postayla girişte de aynı süre harcansın diye sahte bir hash'e karşı doğrular;

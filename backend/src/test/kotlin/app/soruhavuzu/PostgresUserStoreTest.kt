@@ -3,13 +3,8 @@ package app.soruhavuzu
 import app.soruhavuzu.users.DuplicateUserException
 import app.soruhavuzu.users.NewUser
 import app.soruhavuzu.users.PostgresUserStore
-import com.zaxxer.hikari.HikariDataSource
 import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
-import org.junit.jupiter.api.TestInstance
 import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.postgresql.PostgreSQLContainer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -20,26 +15,9 @@ import kotlin.test.assertTrue
 
 /** Gerçek Postgres'e karşı çalışır; Docker yoksa atlanır. */
 @Testcontainers(disabledWithoutDocker = true)
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PostgresUserStoreTest {
 
-    private val postgres = PostgreSQLContainer("postgres:17")
-    private lateinit var dataSource: HikariDataSource
-    private lateinit var store: PostgresUserStore
-
-    @BeforeAll
-    fun start() {
-        postgres.start()
-        dataSource = Database.connect(DatabaseConfig(postgres.jdbcUrl, postgres.username, postgres.password, 2))
-        Database.migrate(dataSource)
-        store = PostgresUserStore(dataSource)
-    }
-
-    @AfterAll
-    fun stop() {
-        dataSource.close()
-        postgres.stop()
-    }
+    private val store = PostgresUserStore(TestDatabase.dataSource)
 
     private fun newUser(email: String, nickname: String) =
         NewUser(email = email, passwordHash = "hash", nickname = nickname, birthYear = 2000, targetExamId = "exam_kpss")
