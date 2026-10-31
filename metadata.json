@@ -1,0 +1,6 @@
+{
+  "name": "SoruHavuzu",
+  "description": "Dinamik Elo ve Rasch zorluk kalibrasyonlu kitle kaynaklı soru bankası ve puanlama motoru.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

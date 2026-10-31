@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">SoruHavuzu</string>
+    <string name="nav_home">Havuz</string>
+    <string name="nav_upload">Soru Yükle</string>
+    <string name="nav_saved">Tekrar &amp; Favori</string>
+    <string name="nav_moderation">Moderasyon</string>
+    <string name="nav_profile">Profil &amp; Sistem</string>
+    <string name="challenge_mode_title">Beni Zorla Modu</string>
+    <string name="practice_mode_title">Zorluk Seçerek Çöz</string>
+    <string name="submit_answer">Cevabı Onayla</string>
+    <string name="next_question">Sonraki Soru</string>
+    <string name="report_question">Soruyu Bildir</string>
+</resources>
