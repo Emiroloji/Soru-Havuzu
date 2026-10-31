@@ -3,9 +3,11 @@ package app.soruhavuzu.questions
 import app.soruhavuzu.ForbiddenException
 import app.soruhavuzu.NotFoundException
 import app.soruhavuzu.domain.CalibrationEngine
+import app.soruhavuzu.users.Permissions
 import app.soruhavuzu.validate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.postgresql.util.PSQLException
 import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
@@ -70,7 +72,43 @@ interface QuestionStore {
         responseTimeMs: Long,
         sessionType: SessionType
     ): AttemptResult
+
+    suspend fun topicExists(topicId: String): Boolean
+    suspend fun createQuestion(question: NewQuestion, maxUploadsPerHour: Int): CreateQuestionResult
+    suspend fun questionsUploadedBy(userId: UUID): List<UploadedQuestion>
 }
+
+data class NewQuestion(
+    val uploaderId: UUID,
+    val topicId: String,
+    val bodyText: String,
+    val options: List<String>,
+    val correctOptionIndex: Int,
+    val uploaderRating: Int,
+    val solutionText: String,
+    val contentHash: String,
+    val imagePath: String?,
+    val imagePhash: String?
+)
+
+sealed interface CreateQuestionResult {
+    data class Created(val id: UUID, val status: String, val difficultyBucket: Int) : CreateQuestionResult
+    data class Duplicate(val existingId: UUID) : CreateQuestionResult
+    data object RateLimited : CreateQuestionResult
+}
+
+data class UploadedQuestion(
+    val id: UUID,
+    val topicName: String,
+    val bodyPreview: String,
+    val status: String,
+    val uploaderRating: Int,
+    val difficultyBucket: Int,
+    val firstAttemptCount: Int,
+    val correctFirstCount: Int,
+    val keySuspect: Boolean,
+    val createdAt: java.time.Instant
+)
 
 class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore {
 
@@ -203,6 +241,170 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
             } finally {
                 conn.autoCommit = true
             }
+        }
+    }
+
+    override suspend fun topicExists(topicId: String): Boolean = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT 1 FROM topics WHERE id = ?").use { st ->
+                st.setString(1, topicId)
+                st.executeQuery().use { it.next() }
+            }
+        }
+    }
+
+    override suspend fun createQuestion(question: NewQuestion, maxUploadsPerHour: Int): CreateQuestionResult =
+        withContext(Dispatchers.IO) {
+            dataSource.connection.use { conn ->
+                conn.autoCommit = false
+                try {
+                    createInTransaction(conn, question, maxUploadsPerHour).also { result ->
+                        if (result is CreateQuestionResult.Created) conn.commit() else conn.rollback()
+                    }
+                } catch (e: PSQLException) {
+                    conn.rollback()
+                    // Aynı içerik aynı anda başka biri tarafından yüklendiyse tekil indeks yakalar
+                    if (e.sqlState == UNIQUE_VIOLATION && e.serverErrorMessage?.constraint == "questions_content_hash_uq") {
+                        findActiveByHash(conn, question.contentHash)?.let { CreateQuestionResult.Duplicate(it) } ?: throw e
+                    } else {
+                        throw e
+                    }
+                } catch (e: Throwable) {
+                    conn.rollback()
+                    throw e
+                } finally {
+                    conn.autoCommit = true
+                }
+            }
+        }
+
+    private fun createInTransaction(conn: Connection, question: NewQuestion, maxUploadsPerHour: Int): CreateQuestionResult {
+        // Yükleyeni kilitlemek saatlik sınırın eşzamanlı isteklerle aşılmasını engeller
+        val uploader = conn.prepareStatement("SELECT role, reputation, uploader_bias FROM users WHERE id = ? FOR UPDATE").use { st ->
+            st.setObject(1, question.uploaderId)
+            st.executeQuery().use { rs ->
+                if (!rs.next()) throw NotFoundException("Kullanıcı bulunamadı")
+                Triple(rs.getString("role"), rs.getInt("reputation"), rs.getDouble("uploader_bias"))
+            }
+        }
+        val (role, reputation, bias) = uploader
+
+        val lastHour = conn.prepareStatement(
+            "SELECT count(*) FROM questions WHERE uploader_id = ? AND created_at > now() - interval '1 hour'"
+        ).use { st ->
+            st.setObject(1, question.uploaderId)
+            st.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
+        }
+        if (lastHour >= maxUploadsPerHour) return CreateQuestionResult.RateLimited
+
+        findActiveByHash(conn, question.contentHash)?.let { return CreateQuestionResult.Duplicate(it) }
+
+        val status = if (Permissions.canPublishDirectly(role, reputation)) "ACTIVE" else "IN_REVIEW"
+        val logit = CalibrationEngine.initialLogit(question.uploaderRating, bias)
+        val bucket = CalibrationEngine.logitToBucket(logit)
+        val questionId = UUID.randomUUID()
+        val versionId = UUID.randomUUID()
+
+        // current_version_id'nin yabancı anahtarı transaction sonunda kontrol edilir (DEFERRABLE)
+        conn.prepareStatement(
+            """
+            INSERT INTO questions (id, uploader_id, topic_id, current_version_id, status, uploader_rating,
+                                   difficulty_logit, difficulty_bucket, content_hash, image_phash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent()
+        ).use { st ->
+            st.setObject(1, questionId)
+            st.setObject(2, question.uploaderId)
+            st.setString(3, question.topicId)
+            st.setObject(4, versionId)
+            st.setString(5, status)
+            st.setInt(6, question.uploaderRating)
+            st.setDouble(7, logit)
+            st.setInt(8, bucket)
+            st.setString(9, question.contentHash)
+            st.setString(10, question.imagePhash)
+            st.executeUpdate()
+        }
+        conn.prepareStatement(
+            """
+            INSERT INTO question_versions (id, question_id, version_number, body_text, image_path, options,
+                                           correct_option_index, option_selection_counts, solution_text, editor_note, created_by)
+            VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 'İlk yükleme', ?)
+            """.trimIndent()
+        ).use { st ->
+            st.setObject(1, versionId)
+            st.setObject(2, questionId)
+            st.setString(3, question.bodyText)
+            st.setString(4, question.imagePath)
+            st.setArray(5, conn.createArrayOf("text", question.options.toTypedArray()))
+            st.setInt(6, question.correctOptionIndex)
+            st.setArray(7, conn.createArrayOf("integer", Array(question.options.size) { 0 }))
+            st.setString(8, question.solutionText)
+            st.setObject(9, question.uploaderId)
+            st.executeUpdate()
+        }
+
+        if (status == "ACTIVE") {
+            addReputation(conn, question.uploaderId, PUBLISH_REPUTATION, "Sorun doğrudan yayına alındı", questionId)
+        }
+        return CreateQuestionResult.Created(questionId, status, bucket)
+    }
+
+    override suspend fun questionsUploadedBy(userId: UUID): List<UploadedQuestion> = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT q.id, t.name AS topic_name, left(v.body_text, 120) AS preview, q.status, q.uploader_rating,
+                       q.difficulty_bucket, q.first_attempt_count, q.correct_first_count, q.key_suspect, q.created_at
+                FROM questions q
+                JOIN question_versions v ON v.id = q.current_version_id
+                JOIN topics t ON t.id = q.topic_id
+                WHERE q.uploader_id = ?
+                ORDER BY q.created_at DESC
+                LIMIT 200
+                """.trimIndent()
+            ).use { st ->
+                st.setObject(1, userId)
+                st.executeQuery().use { rs ->
+                    generateSequence { if (rs.next()) rs else null }.map {
+                        UploadedQuestion(
+                            id = it.getObject("id", UUID::class.java),
+                            topicName = it.getString("topic_name"),
+                            bodyPreview = it.getString("preview"),
+                            status = it.getString("status"),
+                            uploaderRating = it.getInt("uploader_rating"),
+                            difficultyBucket = it.getInt("difficulty_bucket"),
+                            firstAttemptCount = it.getInt("first_attempt_count"),
+                            correctFirstCount = it.getInt("correct_first_count"),
+                            keySuspect = it.getBoolean("key_suspect"),
+                            createdAt = it.getTimestamp("created_at").toInstant()
+                        )
+                    }.toList()
+                }
+            }
+        }
+    }
+
+    private fun findActiveByHash(conn: Connection, contentHash: String): UUID? =
+        conn.prepareStatement("SELECT id FROM questions WHERE content_hash = ? AND status <> 'REMOVED'").use { st ->
+            st.setString(1, contentHash)
+            st.executeQuery().use { rs -> if (rs.next()) rs.getObject(1, UUID::class.java) else null }
+        }
+
+    private fun addReputation(conn: Connection, userId: UUID, delta: Int, reason: String, questionId: UUID?) {
+        conn.prepareStatement("UPDATE users SET reputation = greatest(0, reputation + ?) WHERE id = ?").use { st ->
+            st.setInt(1, delta)
+            st.setObject(2, userId)
+            st.executeUpdate()
+        }
+        conn.prepareStatement(
+            "INSERT INTO reputation_events (user_id, delta, reason, related_question_id) VALUES (?, ?, ?, ?)"
+        ).use { st ->
+            st.setObject(1, userId)
+            st.setInt(2, delta)
+            st.setString(3, reason)
+            st.setObject(4, questionId)
+            st.executeUpdate()
         }
     }
 
@@ -497,6 +699,8 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
 
     private companion object {
         const val MAX_RESPONSE_TIME_MS = 3_600_000L
+        const val UNIQUE_VIOLATION = "23505"
+        const val PUBLISH_REPUTATION = 5
         const val NOT_SOLVED = "NOT EXISTS (SELECT 1 FROM attempts a WHERE a.user_id = ? AND a.question_id = q.id)"
 
         /** İlk parametre: already_solved hesabı için kullanıcı id'si. */

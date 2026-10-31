@@ -37,7 +37,8 @@ data class QuestionDto(
     val topicId: String,
     val topicName: String,
     val bodyText: String,
-    val imagePath: String?,
+    /** Sunucu köküne göre görsel adresi, ör. "/images/q_....jpg". */
+    val imageUrl: String?,
     val options: List<String>,
     val difficultyBucket: Int,
     val firstAttemptCount: Int,
@@ -77,7 +78,7 @@ data class AttemptResponse(
 
 fun QuestionForSolving.toDto() = QuestionDto(
     id.toString(), examId, subjectId, subjectName, topicId, topicName,
-    bodyText, imagePath, options, difficultyBucket, firstAttemptCount, alreadySolved
+    bodyText, imagePath?.let { "/images/$it" }, options, difficultyBucket, firstAttemptCount, alreadySolved
 )
 
 fun Route.questionRoutes(questions: QuestionStore) {

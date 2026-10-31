@@ -6,9 +6,11 @@ import app.soruhavuzu.auth.AuthUser
 import app.soruhavuzu.auth.PasswordHasher
 import app.soruhavuzu.auth.TokenService
 import app.soruhavuzu.auth.authRoutes
+import app.soruhavuzu.questions.ImageStorage
 import app.soruhavuzu.questions.PostgresQuestionStore
 import app.soruhavuzu.questions.QuestionStore
 import app.soruhavuzu.questions.questionRoutes
+import app.soruhavuzu.questions.uploadRoutes
 import app.soruhavuzu.users.DuplicateUserException
 import app.soruhavuzu.users.PostgresUserStore
 import app.soruhavuzu.users.UserStore
@@ -33,6 +35,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
 import java.util.UUID
 import kotlin.time.Duration.Companion.minutes
 
@@ -47,6 +50,7 @@ fun main() {
         healthCheck = DatabaseHealthCheck(dataSource),
         users = PostgresUserStore(dataSource),
         questions = PostgresQuestionStore(dataSource),
+        images = ImageStorage(Path.of(config.uploadDir)),
         hasher = PasswordHasher(),
         tokens = TokenService(config.jwt)
     )
@@ -61,9 +65,11 @@ class Services(
     val healthCheck: HealthCheck,
     val users: UserStore,
     val questions: QuestionStore,
+    val images: ImageStorage,
     val hasher: PasswordHasher,
     val tokens: TokenService,
-    val authRequestsPerMinute: Int = 10
+    val authRequestsPerMinute: Int = 10,
+    val uploadsPerHour: Int = 10
 )
 
 @Serializable
@@ -132,5 +138,6 @@ fun Application.module(services: Services) {
         }
         authRoutes(services.users, services.hasher, services.tokens)
         questionRoutes(services.questions)
+        uploadRoutes(services.questions, services.images, services.uploadsPerHour)
     }
 }

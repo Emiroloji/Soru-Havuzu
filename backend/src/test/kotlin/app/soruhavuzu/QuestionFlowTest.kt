@@ -134,7 +134,8 @@ class QuestionFlowTest {
         val client = setup()
         val token = client.newUser()
         val userId = UUID.fromString(client.get("/me") { bearerAuth(token) }.body<app.soruhavuzu.auth.UserDto>().id)
-        val question = assertNotNull(client.next(token, "examId=exam_tyt").question)
+        // Kolay soru: yanlış cevabın seviyeyi görünür biçimde düşürmesi için (zor soruda düşüş 0.1'in altında kalır)
+        val question = assertNotNull(client.next(token, "examId=exam_tyt&maxBucket=3").question)
         val wrong = (correctIndexOf(question.id) + 1) % question.options.size
 
         val result = client.answer(token, question.id, wrong).body<AttemptResponse>()
@@ -253,7 +254,7 @@ class QuestionFlowTest {
             conn.prepareStatement(
                 """
                 INSERT INTO questions (id, uploader_id, topic_id, status, uploader_rating, difficulty_logit, difficulty_bucket, content_hash)
-                VALUES (?, ?, 'kpss_tar_osmanli', 'ACTIVE', 5, 0.0, 6, 'test');
+                VALUES (?, ?, 'kpss_gun_genel', 'ACTIVE', 5, 0.0, 6, 'test');
                 """.trimIndent()
             ).use { st -> st.setObject(1, ownQuestionId); st.setObject(2, UUID.fromString(me.id)); st.executeUpdate() }
             conn.prepareStatement(
@@ -273,6 +274,6 @@ class QuestionFlowTest {
         }
 
         assertEquals(HttpStatusCode.Forbidden, client.answer(token, ownQuestionId.toString(), 0).status)
-        assertNull(client.next(token, "topicId=kpss_tar_osmanli").question)
+        assertNull(client.next(token, "topicId=kpss_gun_genel").question)
     }
 }

@@ -2,11 +2,14 @@ package app.soruhavuzu
 
 import app.soruhavuzu.auth.PasswordHasher
 import app.soruhavuzu.auth.TokenService
+import app.soruhavuzu.questions.ImageStorage
+import app.soruhavuzu.questions.NewQuestion
 import app.soruhavuzu.questions.QuestionFilter
 import app.soruhavuzu.questions.QuestionStore
 import app.soruhavuzu.questions.SessionType
 import com.zaxxer.hikari.HikariDataSource
 import org.testcontainers.postgresql.PostgreSQLContainer
+import java.nio.file.Files
 import app.soruhavuzu.users.DuplicateUserException
 import app.soruhavuzu.users.NewUser
 import app.soruhavuzu.users.User
@@ -23,11 +26,15 @@ fun testServices(
     healthCheck: HealthCheck = HealthCheck { true },
     users: UserStore = InMemoryUserStore(),
     questions: QuestionStore = UnusedQuestionStore,
-    authRequestsPerMinute: Int = 1000
+    images: ImageStorage = ImageStorage(Files.createTempDirectory("soruhavuzu-test-images")),
+    authRequestsPerMinute: Int = 1000,
+    uploadsPerHour: Int = 1000
 ) = Services(
     healthCheck = healthCheck,
     users = users,
     questions = questions,
+    images = images,
+    uploadsPerHour = uploadsPerHour,
     // Testlerde düşük maliyet: bcrypt 12 her hash'te ~250 ms sürer
     hasher = PasswordHasher(cost = 4),
     tokens = TokenService(testJwtConfig),
@@ -48,6 +55,9 @@ object UnusedQuestionStore : QuestionStore {
     override suspend fun submitAttempt(
         userId: UUID, questionId: UUID, selectedOptionIndex: Int, responseTimeMs: Long, sessionType: SessionType
     ) = unused()
+    override suspend fun topicExists(topicId: String) = unused()
+    override suspend fun createQuestion(question: NewQuestion, maxUploadsPerHour: Int) = unused()
+    override suspend fun questionsUploadedBy(userId: UUID) = unused()
 }
 
 /** Testcontainers ile tüm test sınıflarının paylaştığı tek Postgres; migration'lar bir kez çalışır. */
