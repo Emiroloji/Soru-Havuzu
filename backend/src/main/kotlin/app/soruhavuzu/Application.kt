@@ -6,6 +6,8 @@ import app.soruhavuzu.auth.AuthUser
 import app.soruhavuzu.auth.PasswordHasher
 import app.soruhavuzu.auth.TokenService
 import app.soruhavuzu.auth.authRoutes
+import app.soruhavuzu.moderation.ModerationStore
+import app.soruhavuzu.moderation.moderationRoutes
 import app.soruhavuzu.questions.ImageStorage
 import app.soruhavuzu.questions.PostgresQuestionStore
 import app.soruhavuzu.questions.QuestionStore
@@ -51,6 +53,7 @@ fun main() {
         users = PostgresUserStore(dataSource),
         questions = PostgresQuestionStore(dataSource),
         images = ImageStorage(Path.of(config.uploadDir)),
+        moderation = ModerationStore(dataSource),
         hasher = PasswordHasher(),
         tokens = TokenService(config.jwt)
     )
@@ -66,6 +69,7 @@ class Services(
     val users: UserStore,
     val questions: QuestionStore,
     val images: ImageStorage,
+    val moderation: ModerationStore,
     val hasher: PasswordHasher,
     val tokens: TokenService,
     val authRequestsPerMinute: Int = 10,
@@ -109,6 +113,9 @@ fun Application.module(services: Services) {
         exception<NotFoundException> { call, cause ->
             call.respond(HttpStatusCode.NotFound, ErrorResponse(cause.message ?: "Bulunamadı"))
         }
+        exception<ConflictException> { call, cause ->
+            call.respond(HttpStatusCode.Conflict, ErrorResponse(cause.message ?: "Çakışma"))
+        }
         exception<ForbiddenException> { call, cause ->
             call.respond(HttpStatusCode.Forbidden, ErrorResponse(cause.message ?: "Bu işlem için yetkin yok"))
         }
@@ -139,5 +146,6 @@ fun Application.module(services: Services) {
         authRoutes(services.users, services.hasher, services.tokens)
         questionRoutes(services.questions)
         uploadRoutes(services.questions, services.images, services.uploadsPerHour)
+        moderationRoutes(services.moderation, services.users, services.images)
     }
 }

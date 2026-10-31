@@ -2,12 +2,14 @@ package app.soruhavuzu
 
 import app.soruhavuzu.auth.PasswordHasher
 import app.soruhavuzu.auth.TokenService
+import app.soruhavuzu.moderation.ModerationStore
 import app.soruhavuzu.questions.ImageStorage
 import app.soruhavuzu.questions.NewQuestion
 import app.soruhavuzu.questions.QuestionFilter
 import app.soruhavuzu.questions.QuestionStore
 import app.soruhavuzu.questions.SessionType
 import com.zaxxer.hikari.HikariDataSource
+import org.postgresql.ds.PGSimpleDataSource
 import org.testcontainers.postgresql.PostgreSQLContainer
 import java.nio.file.Files
 import app.soruhavuzu.users.DuplicateUserException
@@ -27,6 +29,8 @@ fun testServices(
     users: UserStore = InMemoryUserStore(),
     questions: QuestionStore = UnusedQuestionStore,
     images: ImageStorage = ImageStorage(Files.createTempDirectory("soruhavuzu-test-images")),
+    // Bağlantı ayarı olmayan veri kaynağı: moderasyon uçlarını kullanmayan testlerde hiç açılmaz
+    moderation: ModerationStore = ModerationStore(PGSimpleDataSource()),
     authRequestsPerMinute: Int = 1000,
     uploadsPerHour: Int = 1000
 ) = Services(
@@ -34,6 +38,7 @@ fun testServices(
     users = users,
     questions = questions,
     images = images,
+    moderation = moderation,
     uploadsPerHour = uploadsPerHour,
     // Testlerde düşük maliyet: bcrypt 12 her hash'te ~250 ms sürer
     hasher = PasswordHasher(cost = 4),

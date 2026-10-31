@@ -4,6 +4,7 @@ import app.soruhavuzu.ForbiddenException
 import app.soruhavuzu.NotFoundException
 import app.soruhavuzu.domain.CalibrationEngine
 import app.soruhavuzu.users.Permissions
+import app.soruhavuzu.users.ReputationLedger
 import app.soruhavuzu.validate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -345,7 +346,7 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
         }
 
         if (status == "ACTIVE") {
-            addReputation(conn, question.uploaderId, PUBLISH_REPUTATION, "Sorun doğrudan yayına alındı", questionId)
+            ReputationLedger.add(conn, question.uploaderId, ReputationLedger.QUESTION_PUBLISHED, "Sorun doğrudan yayına alındı", questionId)
         }
         return CreateQuestionResult.Created(questionId, status, bucket)
     }
@@ -390,23 +391,6 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
             st.setString(1, contentHash)
             st.executeQuery().use { rs -> if (rs.next()) rs.getObject(1, UUID::class.java) else null }
         }
-
-    private fun addReputation(conn: Connection, userId: UUID, delta: Int, reason: String, questionId: UUID?) {
-        conn.prepareStatement("UPDATE users SET reputation = greatest(0, reputation + ?) WHERE id = ?").use { st ->
-            st.setInt(1, delta)
-            st.setObject(2, userId)
-            st.executeUpdate()
-        }
-        conn.prepareStatement(
-            "INSERT INTO reputation_events (user_id, delta, reason, related_question_id) VALUES (?, ?, ?, ?)"
-        ).use { st ->
-            st.setObject(1, userId)
-            st.setInt(2, delta)
-            st.setString(3, reason)
-            st.setObject(4, questionId)
-            st.executeUpdate()
-        }
-    }
 
     private fun submitInTransaction(
         conn: Connection,
@@ -700,7 +684,6 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
     private companion object {
         const val MAX_RESPONSE_TIME_MS = 3_600_000L
         const val UNIQUE_VIOLATION = "23505"
-        const val PUBLISH_REPUTATION = 5
         const val NOT_SOLVED = "NOT EXISTS (SELECT 1 FROM attempts a WHERE a.user_id = ? AND a.question_id = q.id)"
 
         /** İlk parametre: already_solved hesabı için kullanıcı id'si. */
