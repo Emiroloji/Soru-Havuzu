@@ -21,13 +21,10 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-    // Backend adresi. Domain alınınca burası https://... olarak değişir ve
-    // res/xml/network_security_config.xml içindeki HTTP izni kaldırılır.
-    buildConfigField(
-      "String",
-      "API_BASE_URL",
-      "\"http://soruhavuzudb-soruhavuzu-yiguld-0c19eb-91-151-88-152.sslip.io/\"",
-    )
+    // Backend adresi gradle.properties'teki soruhavuzu.apiBaseUrl'den gelir (README: Domain ve HTTPS).
+    val apiBaseUrl = providers.gradleProperty("soruhavuzu.apiBaseUrl").get()
+    require(apiBaseUrl.endsWith("/")) { "soruhavuzu.apiBaseUrl '/' ile bitmeli" }
+    buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
