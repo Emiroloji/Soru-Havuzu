@@ -229,6 +229,46 @@ class QuestionFlowTest {
     }
 
     @Test
+    fun `kova sayilari cozulen soruyla guncellenir ve istatistikler artar`() = testApplication {
+        val client = setup()
+        val token = client.newUser()
+        suspend fun counts() = client.get("/questions/counts?examId=exam_tyt") { bearerAuth(token) }
+            .body<List<app.soruhavuzu.questions.BucketCountDto>>()
+
+        val before = counts()
+        assertEquals((1..10).toList(), before.map { it.bucket })
+        assertEquals(before.sumOf { it.total }, before.sumOf { it.unsolved }, "yeni kullanıcı hiçbir soruyu çözmemiş olmalı")
+
+        val question = assertNotNull(client.next(token, "examId=exam_tyt").question)
+        client.answer(token, question.id, 0)
+
+        val after = counts()
+        assertEquals(before.sumOf { it.unsolved } - 1, after.sumOf { it.unsolved })
+        val stats = client.get("/me/stats") { bearerAuth(token) }.body<app.soruhavuzu.questions.UserStatsDto>()
+        assertEquals(1, stats.solvedCount)
+    }
+
+    @Test
+    fun `favori isareti acilip kapanir ve soruda gorunur`() = testApplication {
+        val client = setup()
+        val token = client.newUser()
+        val question = assertNotNull(client.next(token, "examId=exam_tyt").question)
+        assertFalse(question.isFavorite)
+
+        suspend fun toggle() = client.post("/questions/${question.id}/favorite") { bearerAuth(token) }
+            .body<app.soruhavuzu.questions.FavoriteResponse>().isFavorite
+
+        assertTrue(toggle())
+        assertTrue(client.get("/questions/${question.id}") { bearerAuth(token) }.body<QuestionDto>().isFavorite)
+        assertEquals(1, client.get("/me/stats") { bearerAuth(token) }.body<app.soruhavuzu.questions.UserStatsDto>().favoriteCount)
+        assertFalse(toggle())
+        assertEquals(
+            HttpStatusCode.NotFound,
+            client.post("/questions/${UUID.randomUUID()}/favorite") { bearerAuth(token) }.status
+        )
+    }
+
+    @Test
     fun `hatali istekler dogru durum kodlarini doner`() = testApplication {
         val client = setup()
         val token = client.newUser()

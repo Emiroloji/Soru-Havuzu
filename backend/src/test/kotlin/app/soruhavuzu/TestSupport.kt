@@ -63,6 +63,9 @@ object UnusedQuestionStore : QuestionStore {
     override suspend fun topicExists(topicId: String) = unused()
     override suspend fun createQuestion(question: NewQuestion, maxUploadsPerHour: Int) = unused()
     override suspend fun questionsUploadedBy(userId: UUID) = unused()
+    override suspend fun bucketCounts(userId: UUID, filter: QuestionFilter) = unused()
+    override suspend fun userStats(userId: UUID) = unused()
+    override suspend fun toggleFavorite(userId: UUID, questionId: UUID) = unused()
 }
 
 /** Testcontainers ile tüm test sınıflarının paylaştığı tek Postgres; migration'lar bir kez çalışır. */

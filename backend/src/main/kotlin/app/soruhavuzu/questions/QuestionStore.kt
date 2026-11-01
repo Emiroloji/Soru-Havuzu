@@ -36,7 +36,8 @@ data class QuestionForSolving(
     val options: List<String>,
     val difficultyBucket: Int,
     val firstAttemptCount: Int,
-    val alreadySolved: Boolean
+    val alreadySolved: Boolean,
+    val isFavorite: Boolean
 )
 
 data class PickResult(
@@ -77,7 +78,16 @@ interface QuestionStore {
     suspend fun topicExists(topicId: String): Boolean
     suspend fun createQuestion(question: NewQuestion, maxUploadsPerHour: Int): CreateQuestionResult
     suspend fun questionsUploadedBy(userId: UUID): List<UploadedQuestion>
+    suspend fun bucketCounts(userId: UUID, filter: QuestionFilter): List<BucketCount>
+    suspend fun userStats(userId: UUID): UserStats
+    /** Favori işaretini tersine çevirir ve yeni durumu döner. Soru yayında değilse NotFoundException. */
+    suspend fun toggleFavorite(userId: UUID, questionId: UUID): Boolean
 }
+
+/** Bir zorluk kovasındaki aktif soru sayısı ve bunlardan kullanıcının henüz çözmedikleri. */
+data class BucketCount(val bucket: Int, val total: Int, val unsolved: Int)
+
+data class UserStats(val solvedCount: Int, val correctCount: Int, val wrongNoteCount: Int, val favoriteCount: Int)
 
 data class NewQuestion(
     val uploaderId: UUID,
@@ -241,6 +251,70 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
                 throw e
             } finally {
                 conn.autoCommit = true
+            }
+        }
+    }
+
+    override suspend fun bucketCounts(userId: UUID, filter: QuestionFilter): List<BucketCount> = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            val where = PickConditions(userId, filter)
+            conn.prepareStatement(
+                """
+                SELECT q.difficulty_bucket, count(*) AS total,
+                       count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM attempts a WHERE a.user_id = ? AND a.question_id = q.id)) AS unsolved
+                FROM questions q
+                JOIN topics t ON t.id = q.topic_id
+                JOIN subjects s ON s.id = t.subject_id
+                WHERE ${where.sql}
+                GROUP BY q.difficulty_bucket
+                """.trimIndent()
+            ).use { st ->
+                st.setObject(1, userId)
+                where.bind(st, startIndex = 2)
+                val found = st.executeQuery().use { rs ->
+                    generateSequence { if (rs.next()) rs else null }
+                        .associate { it.getInt(1) to BucketCount(it.getInt(1), it.getInt(2), it.getInt(3)) }
+                }
+                (1..10).map { found[it] ?: BucketCount(it, 0, 0) }
+            }
+        }
+    }
+
+    override suspend fun userStats(userId: UUID): UserStats = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT
+                    (SELECT count(*) FROM attempts WHERE user_id = ? AND is_first),
+                    (SELECT count(*) FROM attempts WHERE user_id = ? AND is_first AND is_correct),
+                    (SELECT count(*) FROM bookmarks b JOIN questions q ON q.id = b.question_id
+                     WHERE b.user_id = ? AND b.is_wrong_note AND q.status = 'ACTIVE'),
+                    (SELECT count(*) FROM bookmarks b JOIN questions q ON q.id = b.question_id
+                     WHERE b.user_id = ? AND b.is_favorite AND q.status = 'ACTIVE')
+                """.trimIndent()
+            ).use { st ->
+                repeat(4) { st.setObject(it + 1, userId) }
+                st.executeQuery().use { rs ->
+                    rs.next()
+                    UserStats(rs.getInt(1), rs.getInt(2), rs.getInt(3), rs.getInt(4))
+                }
+            }
+        }
+    }
+
+    override suspend fun toggleFavorite(userId: UUID, questionId: UUID): Boolean = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO bookmarks (user_id, question_id, is_favorite)
+                SELECT ?, id, true FROM questions WHERE id = ? AND status = 'ACTIVE'
+                ON CONFLICT (user_id, question_id) DO UPDATE SET is_favorite = NOT bookmarks.is_favorite, updated_at = now()
+                RETURNING is_favorite
+                """.trimIndent()
+            ).use { st ->
+                st.setObject(1, userId)
+                st.setObject(2, questionId)
+                st.executeQuery().use { rs -> if (rs.next()) rs.getBoolean(1) else throw NotFoundException("Soru bulunamadı") }
             }
         }
     }
@@ -637,7 +711,8 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
             options = options,
             difficultyBucket = getInt("difficulty_bucket"),
             firstAttemptCount = getInt("first_attempt_count"),
-            alreadySolved = getBoolean("already_solved")
+            alreadySolved = getBoolean("already_solved"),
+            isFavorite = getBoolean("is_favorite")
         )
     }
 
@@ -686,12 +761,14 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
         const val UNIQUE_VIOLATION = "23505"
         const val NOT_SOLVED = "NOT EXISTS (SELECT 1 FROM attempts a WHERE a.user_id = ? AND a.question_id = q.id)"
 
-        /** İlk parametre: already_solved hesabı için kullanıcı id'si. */
+        /** İlk parametre: soruyu isteyen kullanıcının id'si (çözdü mü / favoride mi hesabı için). */
         val SOLVING_SELECT = """
             SELECT q.id, s.exam_id, t.subject_id, s.name AS subject_name, q.topic_id, t.name AS topic_name,
                    v.body_text, v.image_path, v.options, q.difficulty_bucket, q.difficulty_logit, q.first_attempt_count,
-                   EXISTS (SELECT 1 FROM attempts a WHERE a.user_id = ? AND a.question_id = q.id) AS already_solved
-            FROM questions q
+                   EXISTS (SELECT 1 FROM attempts a WHERE a.user_id = me.id AND a.question_id = q.id) AS already_solved,
+                   COALESCE((SELECT b.is_favorite FROM bookmarks b WHERE b.user_id = me.id AND b.question_id = q.id), false) AS is_favorite
+            FROM (SELECT ?::uuid AS id) me
+            CROSS JOIN questions q
             JOIN question_versions v ON v.id = q.current_version_id
             JOIN topics t ON t.id = q.topic_id
             JOIN subjects s ON s.id = t.subject_id

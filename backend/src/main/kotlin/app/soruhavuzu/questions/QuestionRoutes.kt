@@ -42,8 +42,18 @@ data class QuestionDto(
     val options: List<String>,
     val difficultyBucket: Int,
     val firstAttemptCount: Int,
-    val alreadySolved: Boolean
+    val alreadySolved: Boolean,
+    val isFavorite: Boolean
 )
+
+@Serializable
+data class FavoriteResponse(val isFavorite: Boolean)
+
+@Serializable
+data class BucketCountDto(val bucket: Int, val total: Int, val unsolved: Int)
+
+@Serializable
+data class UserStatsDto(val solvedCount: Int, val correctCount: Int, val wrongNoteCount: Int, val favoriteCount: Int)
 
 @Serializable
 data class BucketRangeDto(val min: Int, val max: Int)
@@ -78,7 +88,7 @@ data class AttemptResponse(
 
 fun QuestionForSolving.toDto() = QuestionDto(
     id.toString(), examId, subjectId, subjectName, topicId, topicName,
-    bodyText, imagePath?.let { "/images/$it" }, options, difficultyBucket, firstAttemptCount, alreadySolved
+    bodyText, imagePath?.let { "/images/$it" }, options, difficultyBucket, firstAttemptCount, alreadySolved, isFavorite
 )
 
 fun Route.questionRoutes(questions: QuestionStore) {
@@ -91,6 +101,11 @@ fun Route.questionRoutes(questions: QuestionStore) {
     }
 
     authenticate(AUTH_JWT) {
+        get("/me/stats") {
+            val stats = questions.userStats(call.userId())
+            call.respond(UserStatsDto(stats.solvedCount, stats.correctCount, stats.wrongNoteCount, stats.favoriteCount))
+        }
+
         route("/questions") {
             /**
              * Sıradaki soru. Örnek: /questions/next?subjectId=kpss_tarih&bucket=4
@@ -128,10 +143,21 @@ fun Route.questionRoutes(questions: QuestionStore) {
                 }
             }
 
+            /** Ana sayfadaki zorluk seçici için kova başına soru sayıları (filtreler /next ile aynı). */
+            get("/counts") {
+                val params = call.request.queryParameters
+                val filter = QuestionFilter(params["examId"], params["subjectId"], params["topicId"])
+                call.respond(questions.bucketCounts(call.userId(), filter).map { BucketCountDto(it.bucket, it.total, it.unsolved) })
+            }
+
             get("/{id}") {
                 val question = questions.findForSolving(call.questionId(), call.userId())
                     ?: throw NotFoundException("Soru bulunamadı")
                 call.respond(question.toDto())
+            }
+
+            post("/{id}/favorite") {
+                call.respond(FavoriteResponse(questions.toggleFavorite(call.userId(), call.questionId())))
             }
 
             post("/{id}/attempts") {

@@ -1,6 +1,7 @@
 package app.soruhavuzu.auth
 
 import app.soruhavuzu.ErrorResponse
+import app.soruhavuzu.domain.CalibrationEngine
 import app.soruhavuzu.validate
 import app.soruhavuzu.users.NewUser
 import app.soruhavuzu.users.User
@@ -42,6 +43,8 @@ data class UserDto(
     val role: String,
     val reputation: Int,
     val theta: Double,
+    /** θ'nın 1..10 ölçeğindeki karşılığı; uygulamada gösterilen seviye. */
+    val level: Double,
     val birthYear: Int?,
     val targetExamId: String?
 )
@@ -49,7 +52,9 @@ data class UserDto(
 @Serializable
 data class AuthResponse(val token: String, val user: UserDto)
 
-fun User.toDto() = UserDto(id.toString(), email, nickname, role, reputation, theta, birthYear, targetExamId)
+fun User.toDto() = UserDto(
+    id.toString(), email, nickname, role, reputation, theta, CalibrationEngine.thetaToLevel(theta), birthYear, targetExamId
+)
 
 private val EMAIL_REGEX = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
 private val NICKNAME_REGEX = Regex("^[\\p{L}0-9_.]{3,24}$")
