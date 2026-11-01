@@ -100,6 +100,47 @@ data class ReportRequest(val reason: String, val note: String)
 @JsonClass(generateAdapter = true)
 data class ReportResponse(val flagged: Boolean, val message: String)
 
+@JsonClass(generateAdapter = true)
+data class UploadQuestionRequest(
+    val topicId: String,
+    val bodyText: String,
+    val options: List<String>,
+    val correctOptionIndex: Int,
+    val uploaderRating: Int,
+    val solutionText: String,
+    val originalityConfirmed: Boolean
+)
+
+@JsonClass(generateAdapter = true)
+data class UploadQuestionResponse(val id: String, val status: String, val difficultyBucket: Int, val message: String)
+
+@JsonClass(generateAdapter = true)
+data class UploadedQuestionDto(
+    val id: String,
+    val topicName: String,
+    val bodyPreview: String,
+    val status: String,
+    val uploaderRating: Int,
+    val difficultyBucket: Int,
+    val firstAttemptCount: Int,
+    val accuracyPercent: Int?,
+    val keySuspect: Boolean,
+    val createdAt: String
+)
+
+@JsonClass(generateAdapter = true)
+data class TopicMasteryDto(
+    val examCode: String,
+    val subjectName: String,
+    val topicName: String,
+    val level: Double,
+    val solvedCount: Int,
+    val correctCount: Int
+)
+
+@JsonClass(generateAdapter = true)
+data class ReputationEventDto(val delta: Int, val reason: String, val createdAt: String)
+
 /** Şikayet nedenleri; name alanı backend'deki ReportReason ile aynı olmalı. */
 enum class ReportReason(val labelTr: String) {
     WRONG_KEY("Cevap anahtarı veya çözüm hatalı"),

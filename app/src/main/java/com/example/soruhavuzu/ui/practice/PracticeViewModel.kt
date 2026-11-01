@@ -65,7 +65,9 @@ data class SessionState(
     val consecutiveWrongs: Int = 0,
     val startLevel: Double? = null,
     val currentLevel: Double? = null,
-    val isFinished: Boolean = false
+    val isFinished: Boolean = false,
+    /** Tekrar oturumunda sıradaki sorular (sunucuya sorulmaz, listeden gelir). */
+    val reviewQueue: List<QuestionDto> = emptyList()
 ) {
     /** "Beni Zorla" hedefi; sunucudaki kuralın aynısı (3 doğru %50, 3 yanlış %75, yoksa %60). */
     val challengeTargetPercent: Int
@@ -130,6 +132,20 @@ class PracticeViewModel(private val client: ApiClient) : ViewModel() {
     fun setIncludeSolved(include: Boolean) = _home.update { it.copy(filter = it.filter.copy(includeSolved = include)) }
 
     fun startPractice(startLevel: Double?) = startSession(SessionType.PRACTICE, startLevel)
+
+    /** Yanlışlarım veya favorilerdeki soruları sırayla tekrar çözdürür. */
+    fun startReview(questions: List<QuestionDto>, startLevel: Double?) {
+        if (questions.isEmpty()) return
+        _session.value = SessionState(
+            type = SessionType.REVIEW,
+            filter = _home.value.filter,
+            question = questions.first(),
+            reviewQueue = questions.drop(1),
+            questionShownAtMs = System.currentTimeMillis(),
+            startLevel = startLevel,
+            currentLevel = startLevel
+        )
+    }
     fun startChallenge(startLevel: Double?) = startSession(SessionType.CHALLENGE, startLevel)
 
     fun selectOption(index: Int) = _session.update { s ->
@@ -153,6 +169,10 @@ class PracticeViewModel(private val client: ApiClient) : ViewModel() {
                 when (result) {
                     is ApiResult.Success -> {
                         val eval = result.value
+                        // Tekrarda doğru çözülen soru öğrenilmiş sayılır ve yanlışlardan çıkar
+                        if (current.type == SessionType.REVIEW && eval.isCorrect) {
+                            viewModelScope.launch { client.call { clearWrongNote(question.id) } }
+                        }
                         current.copy(
                             evaluation = eval,
                             isLoading = false,
@@ -227,6 +247,22 @@ class PracticeViewModel(private val client: ApiClient) : ViewModel() {
 
     private fun loadQuestion(filter: PracticeFilter) {
         val type = _session.value?.type ?: return
+        if (type == SessionType.REVIEW) {
+            _session.update { s ->
+                s ?: return@update null
+                val next = s.reviewQueue.firstOrNull()
+                if (next == null) s.copy(isFinished = true)
+                else s.copy(
+                    question = next,
+                    reviewQueue = s.reviewQueue.drop(1),
+                    selectedOption = null,
+                    evaluation = null,
+                    error = null,
+                    questionShownAtMs = System.currentTimeMillis()
+                )
+            }
+            return
+        }
         _session.update { it?.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             val practice = type == SessionType.PRACTICE

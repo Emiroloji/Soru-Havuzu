@@ -23,7 +23,8 @@ class ApiClient(
     /** Sunucu oturumu reddettiğinde (401) çağrılır: kullanıcı giriş ekranına döner. */
     private val onUnauthorized: () -> Unit
 ) {
-    private val moshi = Moshi.Builder().build()
+    /** Multipart gövdelerdeki JSON alanlarını kodlamak için de kullanılır. */
+    val moshi: Moshi = Moshi.Builder().build()
     private val errorAdapter = moshi.adapter(ErrorResponse::class.java)
 
     val api: SoruHavuzuApi = Retrofit.Builder()

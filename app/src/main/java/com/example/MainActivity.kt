@@ -10,13 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Gavel
@@ -28,14 +26,12 @@ import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -64,10 +60,16 @@ import com.example.soruhavuzu.SoruHavuzuApplication
 import com.example.soruhavuzu.data.remote.UserDto
 import com.example.soruhavuzu.ui.HomePoolScreen
 import com.example.soruhavuzu.ui.SolveSessionScreen
+import com.example.soruhavuzu.ui.UploadQuestionScreen
 import com.example.soruhavuzu.ui.practice.PracticeViewModel
+import com.example.soruhavuzu.ui.profile.ProfileScreen
+import com.example.soruhavuzu.ui.profile.ProfileViewModel
+import com.example.soruhavuzu.ui.review.ReviewScreen
+import com.example.soruhavuzu.ui.review.ReviewViewModel
 import com.example.soruhavuzu.ui.session.AuthScreen
 import com.example.soruhavuzu.ui.session.SessionState
 import com.example.soruhavuzu.ui.session.SessionViewModel
+import com.example.soruhavuzu.ui.upload.UploadViewModel
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
 
@@ -131,17 +133,39 @@ private fun MainScaffold(
     user: UserDto,
     onUserChanged: () -> Unit,
     onLogout: () -> Unit,
-    practiceViewModel: PracticeViewModel = viewModel(factory = PracticeViewModel.Factory)
+    practiceViewModel: PracticeViewModel = viewModel(factory = PracticeViewModel.Factory),
+    uploadViewModel: UploadViewModel = viewModel(factory = UploadViewModel.Factory),
+    reviewViewModel: ReviewViewModel = viewModel(factory = ReviewViewModel.Factory),
+    profileViewModel: ProfileViewModel = viewModel(factory = ProfileViewModel.Factory)
 ) {
     val app = LocalContext.current.applicationContext as SoruHavuzuApplication
     val home by practiceViewModel.home.collectAsStateWithLifecycle()
     val session by practiceViewModel.session.collectAsStateWithLifecycle()
+    val upload by uploadViewModel.state.collectAsStateWithLifecycle()
+    val review by reviewViewModel.state.collectAsStateWithLifecycle()
+    val profile by profileViewModel.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(MainTab.HOME) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val tabs = MainTab.entries.filter { it != MainTab.MODERATION || user.canModerate() }
 
     LaunchedEffect(Unit) { practiceViewModel.initialize(user.targetExamId) }
+    // Sekmeye her dönüşte (ve oturum kapanınca) o sekmenin verisini tazele
+    LaunchedEffect(tab, session == null) {
+        if (session != null) return@LaunchedEffect
+        when (tab) {
+            MainTab.UPLOAD -> uploadViewModel.loadMyQuestions()
+            MainTab.REVIEW -> reviewViewModel.load()
+            MainTab.PROFILE -> profileViewModel.load()
+            else -> Unit
+        }
+    }
+    LaunchedEffect(upload.message) {
+        upload.message?.let {
+            snackbar.showSnackbar(it)
+            uploadViewModel.dismissMessage()
+        }
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -215,38 +239,28 @@ private fun MainScaffold(
                         onOpenReview = { tab = MainTab.REVIEW },
                         onRetry = practiceViewModel::refresh
                     )
-                    MainTab.UPLOAD -> ComingSoon("Soru yükleme", "Sunucuya bağlanan yükleme ekranı bir sonraki adımda geliyor.")
-                    MainTab.REVIEW -> ComingSoon("Yanlışlarım ve favoriler", "Yanlış yaptığın ve kaydettiğin sorular sunucuda tutuluyor; listesi bir sonraki adımda geliyor.")
-                    MainTab.MODERATION -> ComingSoon("Moderasyon", "İnceleme kuyruğu ekranı sonraki adımlarda geliyor.")
-                    MainTab.PROFILE -> ProfileSummary(user = user, onLogout = onLogout)
+                    MainTab.UPLOAD -> UploadQuestionScreen(
+                        user = user,
+                        catalog = home.catalog,
+                        myQuestions = upload.myQuestions,
+                        isSubmitting = upload.isSubmitting,
+                        onSubmitQuestion = { draft, onSuccess ->
+                            uploadViewModel.submit(draft) {
+                                onSuccess()
+                                onUserChanged() // doğrudan yayın itibar kazandırır
+                            }
+                        }
+                    )
+                    MainTab.REVIEW -> ReviewScreen(
+                        state = review,
+                        onStartReview = { questions -> practiceViewModel.startReview(questions, user.level) },
+                        onRemoveWrongNote = reviewViewModel::removeFromWrongNotes,
+                        onRetry = reviewViewModel::load
+                    )
+                    MainTab.MODERATION -> ComingSoon("Moderasyon", "İnceleme kuyruğu ekranı bir sonraki adımda geliyor.")
+                    MainTab.PROFILE -> ProfileScreen(user = user, state = profile, onLogout = onLogout)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ProfileSummary(user: UserDto, onLogout: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(user.nickname, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(user.email, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Seviye: ${user.level} / 10", style = MaterialTheme.typography.bodyLarge)
-                Text("İtibar: ${user.reputation}", style = MaterialTheme.typography.bodyLarge)
-                Text("Rol: ${user.role}", style = MaterialTheme.typography.bodyLarge)
-            }
-        }
-        OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().testTag("logout_button")) {
-            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
-            Spacer(modifier = Modifier.padding(4.dp))
-            Text("Çıkış Yap")
         }
     }
 }
