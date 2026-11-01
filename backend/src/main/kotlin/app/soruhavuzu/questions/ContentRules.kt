@@ -65,17 +65,21 @@ object ContentRules {
     }
 
     /**
-     * Kopya tespiti için metin özeti. Büyük/küçük harf, boşluk ve noktalama farkları yok sayılır;
-     * yani yalnızca biçimi değiştirilmiş aynı soru yakalanır. Rakam veya kelime değişirse farklı sayılır.
+     * Kopya tespiti için soru özeti: kök ve şıklar birlikte. Büyük/küçük harf, boşluk, noktalama ve
+     * şık sırası farkları yok sayılır; yani yalnızca biçimi değiştirilmiş aynı soru yakalanır.
+     * Şıklar özete dahil çünkü "Aşağıdakilerden hangisi ... değildir?" gibi kalıp kökler
+     * farklı sorularda tekrar eder. Rakam veya kelime değişirse farklı soru sayılır.
      */
-    fun contentHash(bodyText: String): String {
-        val normalized = bodyText
-            .lowercase(TURKISH)
-            // Türkçe olmayan klavye/yerel ayarla yazılmış I/İ farkları aynı metni farklı göstermesin
-            .replace('ı', 'i')
-            .replace(Regex("[^\\p{L}\\p{N}+\\-*/=^()√π<>≤≥≠]"), "")
+    fun contentHash(bodyText: String, options: List<String>): String {
+        val normalized = normalize(bodyText) + "#" + options.map(::normalize).sorted().joinToString("|")
         return MessageDigest.getInstance("SHA-256")
             .digest(normalized.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }
+
+    private fun normalize(text: String): String = text
+        .lowercase(TURKISH)
+        // Türkçe olmayan klavye/yerel ayarla yazılmış I/İ farkları aynı metni farklı göstermesin
+        .replace('ı', 'i')
+        .replace(Regex("[^\\p{L}\\p{N}+\\-*/=^()√π<>≤≥≠]"), "")
 }

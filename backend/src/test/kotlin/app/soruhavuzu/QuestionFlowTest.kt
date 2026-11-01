@@ -87,6 +87,10 @@ class QuestionFlowTest {
 
         val kpss = catalog.first { it.code == "KPSS" }
         assertEquals(6, kpss.subjects.size)
+        val kpssBySubject = kpss.subjects.associate { s -> s.name to s.topics.sumOf { it.activeQuestionCount } }
+        listOf("Türkçe", "Matematik", "Tarih", "Coğrafya", "Vatandaşlık").forEach { subject ->
+            assertTrue((kpssBySubject[subject] ?: 0) >= 4, "KPSS $subject başlangıç soruları yüklenmeli")
+        }
         val tytQuestions = catalog.first { it.code == "TYT" }.subjects.flatMap { it.topics }.sumOf { it.activeQuestionCount }
         assertEquals(12, tytQuestions)
     }
@@ -273,7 +277,8 @@ class QuestionFlowTest {
     fun `yanlislarim ve favoriler listelenir, yanlislarimdan cikarilabilir`() = testApplication {
         val client = setup()
         val token = client.newUser()
-        val question = assertNotNull(client.next(token, "examId=exam_tyt").question)
+        // Kolay soru: yanlış cevabın konu seviyesini görünür biçimde düşürmesi için
+        val question = assertNotNull(client.next(token, "examId=exam_tyt&maxBucket=3").question)
         val wrong = (correctIndexOf(question.id) + 1) % question.options.size
         client.answer(token, question.id, wrong)
         client.post("/questions/${question.id}/favorite") { bearerAuth(token) }

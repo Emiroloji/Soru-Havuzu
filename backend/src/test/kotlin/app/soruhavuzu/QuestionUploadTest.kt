@@ -212,16 +212,38 @@ class QuestionUploadTest {
     fun `baslangic sorularinin ozetleri gercek icerikten hesaplanmis`() = testApplication {
         val client = setup()
         val (token, _) = client.newUser(reputation = 60)
-        val seedBody = dataSource.connection.use { conn ->
-            conn.createStatement().use { st ->
-                st.executeQuery(
-                    "SELECT v.body_text FROM questions q JOIN question_versions v ON v.id = q.current_version_id WHERE q.topic_id = 'top_sayilar' LIMIT 1"
-                ).use { it.next(); it.getString(1) }
+        for (topic in listOf("top_sayilar", "kpss_tr_yazim")) {
+            val (seedBody, seedOptions) = dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "SELECT v.body_text, v.options FROM questions q JOIN question_versions v ON v.id = q.current_version_id WHERE q.topic_id = ? LIMIT 1"
+                ).use { st ->
+                    st.setString(1, topic)
+                    st.executeQuery().use {
+                        it.next()
+                        @Suppress("UNCHECKED_CAST")
+                        it.getString(1) to (it.getArray(2).array as Array<String>).toList()
+                    }
+                }
             }
+
+            val response = client.upload(token, request(seedBody).copy(topicId = topic, options = seedOptions.reversed()))
+
+            assertEquals(HttpStatusCode.Conflict, response.status, "$topic başlangıç sorusu kopya sayılmalı")
         }
+    }
 
-        val response = client.upload(token, request(seedBody).copy(topicId = "top_sayilar"))
+    @Test
+    fun `kalip soru koku farkli siklarla tekrar yuklenebilir`() = testApplication {
+        val client = setup()
+        val (token, _) = client.newUser()
+        val stem = "Aşağıdaki cümlelerin hangisinde bir yazım yanlışı yapılmıştır?"
+        val tag = UUID.randomUUID().toString().take(6)
 
-        assertEquals(HttpStatusCode.Conflict, response.status)
+        val response = client.upload(
+            token,
+            request(stem).copy(topicId = "kpss_tr_yazim", options = listOf("Yarın $tag gelecek.", "Herkes $tag geldi.", "Bir şey $tag oldu."))
+        )
+
+        assertEquals(HttpStatusCode.Created, response.status, "KPSS başlangıç sorusuyla aynı kök ama farklı şıklar kopya değil")
     }
 }

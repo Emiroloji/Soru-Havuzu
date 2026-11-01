@@ -54,11 +54,21 @@ class ContentRulesTest {
 
     @Test
     fun `icerik ozeti bicim farklarini yok sayar ama icerik farkini yakalar`() {
-        val original = ContentRules.contentHash("İstanbul'un fethi hangi yıl gerçekleşmiştir?")
-        assertEquals(original, ContentRules.contentHash("  istanbul'un   FETHİ hangi yıl\ngerçekleşmiştir ? "))
+        val options = listOf("1453", "1071")
+        fun hash(body: String) = ContentRules.contentHash(body, options)
+        val original = hash("İstanbul'un fethi hangi yıl gerçekleşmiştir?")
+        assertEquals(original, hash("  istanbul'un   FETHİ hangi yıl\ngerçekleşmiştir ? "))
         // Türkçe olmayan yerel ayarla büyük harfe çevrilmiş metin ("i" -> "I") de aynı sayılır
-        assertEquals(original, ContentRules.contentHash("İstanbul'un fethi hangi yıl gerçekleşmiştir?".uppercase(java.util.Locale.ROOT)))
-        assertNotEquals(original, ContentRules.contentHash("İzmir'in kurtuluşu hangi yıl gerçekleşmiştir?"))
-        assertNotEquals(ContentRules.contentHash("x + 2 = 5"), ContentRules.contentHash("x + 3 = 5"))
+        assertEquals(original, hash("İstanbul'un fethi hangi yıl gerçekleşmiştir?".uppercase(java.util.Locale.ROOT)))
+        assertNotEquals(original, hash("İzmir'in kurtuluşu hangi yıl gerçekleşmiştir?"))
+        assertNotEquals(hash("x + 2 = 5"), hash("x + 3 = 5"))
+    }
+
+    @Test
+    fun `ayni kalip kok farkli siklarla farkli soru, sik sirasi degisince ayni soru sayilir`() {
+        val stem = "Aşağıdaki cümlelerin hangisinde bir yazım yanlışı yapılmıştır?"
+        val first = ContentRules.contentHash(stem, listOf("Herşey yolunda.", "Birkaç gün kaldı."))
+        assertNotEquals(first, ContentRules.contentHash(stem, listOf("Bir çok kez geldi.", "Hiçbir şey olmadı.")))
+        assertEquals(first, ContentRules.contentHash(stem, listOf("Birkaç gün kaldı.", "herşey yolunda")))
     }
 }

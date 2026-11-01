@@ -136,7 +136,7 @@ fun Route.moderationRoutes(moderation: ModerationStore, users: UserStore, images
                         options = clean.options,
                         correctOptionIndex = req.correctOptionIndex,
                         solutionText = clean.solutionText,
-                        contentHash = ContentRules.contentHash(clean.bodyText),
+                        contentHash = ContentRules.contentHash(clean.bodyText, clean.options),
                         editorNote = req.editorNote.trim()
                     )
                 )

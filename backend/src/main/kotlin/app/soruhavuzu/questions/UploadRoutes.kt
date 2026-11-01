@@ -101,7 +101,7 @@ fun Route.uploadRoutes(questions: QuestionStore, images: ImageStorage, maxUpload
                         correctOptionIndex = request.correctOptionIndex,
                         uploaderRating = request.uploaderRating,
                         solutionText = clean.solutionText,
-                        contentHash = ContentRules.contentHash(clean.bodyText),
+                        contentHash = ContentRules.contentHash(clean.bodyText, clean.options),
                         imagePath = stored?.fileName,
                         imagePhash = stored?.perceptualHash
                     ),
