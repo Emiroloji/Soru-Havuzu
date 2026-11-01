@@ -60,24 +60,27 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.soruhavuzu.data.ReportReason
-import com.example.soruhavuzu.data.SessionType
-import com.example.soruhavuzu.domain.CalibrationEngine
+import androidx.compose.material3.CircularProgressIndicator
+import com.example.soruhavuzu.data.remote.AttemptResponse
+import com.example.soruhavuzu.data.remote.ReportReason
+import com.example.soruhavuzu.data.remote.SessionType
+import com.example.soruhavuzu.ui.practice.SessionState
 import com.example.ui.theme.difficultyColorForBucket
 import com.example.ui.theme.difficultyLabelForBucket
 
 @Composable
 fun SolveSessionScreen(
-    session: ActiveSessionState,
-    userTheta: Double,
+    session: SessionState,
+    resolveImageUrl: (String) -> String,
     onSelectOption: (Int) -> Unit,
     onSubmitAnswer: () -> Unit,
     onNextQuestion: () -> Unit,
-    onExpandToNeighborRange: (Int, Int) -> Unit,
-    onToggleFavorite: (String) -> Unit,
-    onReportQuestion: (String, ReportReason, String) -> Unit,
+    onExpandToNeighborRange: (IntRange) -> Unit,
+    onToggleFavorite: () -> Unit,
+    onReportQuestion: (ReportReason, String) -> Unit,
     onFinishSession: () -> Unit,
-    onCloseSession: () -> Unit
+    onCloseSession: () -> Unit,
+    onDismissError: () -> Unit
 ) {
     BackHandler {
         onCloseSession()
@@ -85,18 +88,40 @@ fun SolveSessionScreen(
 
     var showReportModal by remember { mutableStateOf(false) }
 
-    if (session.isSessionFinished) {
-        SessionSummaryView(
-            session = session,
-            currentTheta = userTheta,
-            onCloseSession = onCloseSession
-        )
+    if (session.isFinished) {
+        SessionSummaryView(session = session, onCloseSession = onCloseSession)
+        return
+    }
+
+    if (session.question == null && (session.isLoading || session.error != null)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (session.isLoading) {
+                CircularProgressIndicator()
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Soru getiriliyor…", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Text(
+                    text = session.error.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(onClick = onNextQuestion) { Text("Tekrar Dene") }
+                TextButton(onClick = onCloseSession) { Text("Ana Sayfaya Dön") }
+            }
+        }
         return
     }
 
     // Seçilen kovada soru biterse: "7'de soru kalmadı, 6-8 aralığından devam edelim mi?" Boş ekran gösterilmez!
-    if (session.currentQuestion == null) {
-        val suggested = session.emptyPoolSuggestionRange
+    if (session.question == null) {
+        val suggested = session.suggestedRange
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -123,29 +148,29 @@ fun SolveSessionScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     if (suggested != null) {
                         Text(
-                            text = "${session.filterMinBucket} zorluk kovasında çözmediğin soru kalmadı!",
+                            text = if (session.filter.minBucket == session.filter.maxBucket) "${session.filter.minBucket} zorlukta çözmediğin soru kalmadı!" else "${session.filter.minBucket}–${session.filter.maxBucket} aralığında çözmediğin soru kalmadı!",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Boş ekran yerine komşu zorluk kovaları olan ${suggested.first}–${suggested.second} aralığından kesintisiz devam edelim mi?",
+                            text = "${suggested.first}–${suggested.last} aralığından devam edelim mi?",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(20.dp))
                         Button(
-                            onClick = { onExpandToNeighborRange(suggested.first, suggested.second) },
+                            onClick = { onExpandToNeighborRange(suggested) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(50.dp)
                                 .testTag("expand_neighbor_bucket_button")
                         ) {
-                            Text("${suggested.first}–${suggested.second} Zorluk Aralığından Devam Et")
+                            Text("${suggested.first}–${suggested.last} Zorluk Aralığından Devam Et")
                         }
                     } else {
                         Text(
-                            text = "Bu oturumdaki tüm soruları tamamladın!",
+                            text = "Bu seçimde çözmediğin soru kalmadı!",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -163,10 +188,8 @@ fun SolveSessionScreen(
         return
     }
 
-    val qDetails = session.currentQuestion
-    val q = qDetails.question
-    val ver = qDetails.version
-    val eval = session.evaluationResult
+    val q = session.question
+    val eval = session.evaluation
     val bucketColor = difficultyColorForBucket(q.difficultyBucket)
     val optionLabels = listOf("A", "B", "C", "D", "E")
 
@@ -193,18 +216,14 @@ fun SolveSessionScreen(
                     }
                     Column {
                         Text(
-                            text = session.sessionType.labelTr,
+                            text = session.type.labelTr,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        val subLabel = if (session.sessionType == SessionType.CHALLENGE) {
-                            val targetP = (CalibrationEngine.computeChallengeTargetProbability(
-                                session.consecutiveCorrects,
-                                session.consecutiveWrongs
-                            ) * 100).toInt()
-                            "Hedef Başarı Olasılığı: %$targetP · Seri: ${session.consecutiveCorrects}D / ${session.consecutiveWrongs}Y"
+                        val subLabel = if (session.type == SessionType.CHALLENGE) {
+                            "Hedef başarı: %${session.challengeTargetPercent} · Seri: ${session.consecutiveCorrects}D / ${session.consecutiveWrongs}Y"
                         } else {
-                            "Çözülen: ${session.solvedInSession} · Doğru: ${session.correctInSession}"
+                            "Çözülen: ${session.solved} · Doğru: ${session.correct}"
                         }
                         Text(
                             text = subLabel,
@@ -216,13 +235,13 @@ fun SolveSessionScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = { onToggleFavorite(q.id) },
+                        onClick = onToggleFavorite,
                         modifier = Modifier.testTag("favorite_question_button")
                     ) {
                         Icon(
-                            imageVector = if (qDetails.isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            imageVector = if (q.isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                             contentDescription = "Favoriye Ekle",
-                            tint = if (qDetails.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (q.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(
@@ -262,7 +281,7 @@ fun SolveSessionScreen(
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Text(
-                        text = qDetails.topic.name,
+                        text = "${q.subjectName} · ${q.topicName}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
@@ -285,29 +304,31 @@ fun SolveSessionScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Yükleyen: @${q.uploaderName} (İlk Puanı: ${q.uploaderRating}/10)",
+                            text = if (q.firstAttemptCount == 0) "Bu soruyu ilk çözen sensin" else "${q.firstAttemptCount} kişi çözdü",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Text(
-                            text = "d = ${"%+.2f".format(q.difficultyLogit)} logit",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        if (q.alreadySolved) {
+                            Text(
+                                text = "Daha önce çözdün",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
-                        text = ver.bodyText,
+                        text = q.bodyText,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
 
-                    if (!ver.imageUri.isNullOrBlank()) {
+                    if (!q.imageUrl.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         AsyncImage(
-                            model = ver.imageUri,
+                            model = resolveImageUrl(q.imageUrl),
                             contentDescription = "Soru Görseli",
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -320,11 +341,11 @@ fun SolveSessionScreen(
             }
         }
 
-        // Options List (A..E) - Answer key is only revealed AFTER evaluationResult is returned
+        // Şıklar (A..E). Doğru cevap ancak sunucu değerlendirmeyi döndürünce görünür.
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                qDetails.options.forEachIndexed { idx, optionText ->
-                    val isSelected = session.selectedOptionIndex == idx
+                q.options.forEachIndexed { idx, optionText ->
+                    val isSelected = session.selectedOption == idx
                     val isCorrectOption = eval != null && eval.correctOptionIndex == idx
                     val isWrongSelected = eval != null && isSelected && !eval.isCorrect
 
@@ -387,9 +408,20 @@ fun SolveSessionScreen(
         // Submit Button OR Instant Evaluation + Elo Calibration Feedback + Solution Card
         item {
             if (eval == null) {
+                session.error?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onDismissError() }
+                            .padding(bottom = 8.dp)
+                    )
+                }
                 Button(
                     onClick = onSubmitAnswer,
-                    enabled = session.selectedOptionIndex != null,
+                    enabled = session.selectedOption != null && !session.isLoading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp)
@@ -397,7 +429,7 @@ fun SolveSessionScreen(
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Text(
-                        text = "Cevabı Onayla ve Kalibre Et",
+                        text = if (session.isLoading) "Gönderiliyor…" else "Cevabı Onayla",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -405,7 +437,7 @@ fun SolveSessionScreen(
             } else {
                 EvaluationAndSolutionCard(
                     eval = eval,
-                    priorWeightPercent = qDetails.priorWeightPercent,
+                    isLoadingNext = session.isLoading,
                     onNextQuestion = onNextQuestion,
                     onFinishSession = onFinishSession
                 )
@@ -415,11 +447,10 @@ fun SolveSessionScreen(
 
     if (showReportModal) {
         ReportQuestionDialog(
-            questionId = q.id,
             onDismiss = { showReportModal = false },
             onSubmit = { reason, note ->
                 showReportModal = false
-                onReportQuestion(q.id, reason, note)
+                onReportQuestion(reason, note)
             }
         )
     }
@@ -427,14 +458,13 @@ fun SolveSessionScreen(
 
 @Composable
 private fun EvaluationAndSolutionCard(
-    eval: com.example.soruhavuzu.data.AttemptEvaluationResult,
-    priorWeightPercent: Int,
+    eval: AttemptResponse,
+    isLoadingNext: Boolean,
     onNextQuestion: () -> Unit,
     onFinishSession: () -> Unit
 ) {
     val headerColor = if (eval.isCorrect) Color(0xFF059669) else Color(0xFFDC2626)
-    val deltaTheta = eval.newUserTheta - eval.oldUserTheta
-    val deltaLogit = eval.newLogit - eval.oldLogit
+    val deltaLevel = eval.newLevel - eval.oldLevel
 
     Card(
         modifier = Modifier
@@ -464,9 +494,9 @@ private fun EvaluationAndSolutionCard(
                     )
                     Text(
                         text = if (eval.wasFirstAttempt) {
-                            "İlk denemen (isFirst = true) olduğu için Elo/Rasch kalibrasyonu güncellendi."
+                            "İlk denemen olduğu için seviyen ve sorunun zorluğu güncellendi."
                         } else {
-                            "Tekrar denemesi (isFirst = false): Soru zorluğu değişmedi."
+                            "Bu soruyu daha önce çözdüğün için seviyen değişmedi."
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -484,7 +514,7 @@ private fun EvaluationAndSolutionCard(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "CANLI ELO / RASCH KALİBRASYON ÖZETİ",
+                        text = "KALİBRASYON",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -494,17 +524,17 @@ private fun EvaluationAndSolutionCard(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("Senin Yeteneğin (θ)", style = MaterialTheme.typography.bodySmall)
+                            Text("Seviyen", style = MaterialTheme.typography.bodySmall)
                             Text(
-                                text = "${"%+.2f".format(eval.oldUserTheta)} → ${"%+.2f".format(eval.newUserTheta)} (${"%+.2f".format(deltaTheta)})",
+                                text = "${eval.oldLevel} → ${eval.newLevel} (${"%+.1f".format(deltaLevel)})",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("Soru Zorluğu (d / Kova)", style = MaterialTheme.typography.bodySmall)
+                            Text("Soru Zorluğu", style = MaterialTheme.typography.bodySmall)
                             Text(
-                                text = "${"%+.2f".format(eval.oldLogit)} → ${"%+.2f".format(eval.newLogit)} (${eval.newDifficultyBucket}/10)",
+                                text = "${eval.oldDifficultyBucket}/10 → ${eval.newDifficultyBucket}/10",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -512,7 +542,7 @@ private fun EvaluationAndSolutionCard(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Beklenen Başarı Olasılığı: %${eval.expectedProbabilityPercent} · Yükleyen Tahmin Ağırlığı: %$priorWeightPercent",
+                        text = "Bu soruyu çözme ihtimalin %${eval.expectedProbabilityPercent} olarak hesaplanmıştı.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -559,6 +589,7 @@ private fun EvaluationAndSolutionCard(
                 }
                 Button(
                     onClick = onNextQuestion,
+                    enabled = !isLoadingNext,
                     modifier = Modifier
                         .weight(1.4f)
                         .height(48.dp)
@@ -575,13 +606,11 @@ private fun EvaluationAndSolutionCard(
 
 @Composable
 private fun SessionSummaryView(
-    session: ActiveSessionState,
-    currentTheta: Double,
+    session: SessionState,
     onCloseSession: () -> Unit
 ) {
-    val netThetaDelta = currentTheta - session.sessionStartTheta
-    val accuracy = if (session.solvedInSession == 0) 0
-    else ((session.correctInSession * 100) / session.solvedInSession)
+    val netLevelDelta = (session.currentLevel ?: 0.0) - (session.startLevel ?: 0.0)
+    val accuracy = if (session.solved == 0) 0 else (session.correct * 100) / session.solved
 
     Column(
         modifier = Modifier
@@ -614,7 +643,7 @@ private fun SessionSummaryView(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = session.sessionType.labelTr,
+                    text = session.type.labelTr,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -628,7 +657,7 @@ private fun SessionSummaryView(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Çözülen", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = "${session.solvedInSession}",
+                            text = "${session.solved}",
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -645,10 +674,10 @@ private fun SessionSummaryView(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Seviye Değişimi", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = "${"%+.2f".format(netThetaDelta)} θ",
+                            text = "${"%+.1f".format(netLevelDelta)} seviye",
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
-                            color = if (netThetaDelta >= 0) Color(0xFF059669) else Color(0xFFDC2626)
+                            color = if (netLevelDelta >= 0) Color(0xFF059669) else Color(0xFFDC2626)
                         )
                     }
                 }
@@ -671,7 +700,6 @@ private fun SessionSummaryView(
 
 @Composable
 private fun ReportQuestionDialog(
-    questionId: String,
     onDismiss: () -> Unit,
     onSubmit: (ReportReason, String) -> Unit
 ) {
@@ -680,11 +708,11 @@ private fun ReportQuestionDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Soruyu Bildir (#$questionId)") },
+        title = { Text("Soruyu Bildir") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "Ağırlıklı şikayet skoru eşiği aşarsa soru otomatik olarak FLAGGED durumuna geçip havuzdan çıkarılır.",
+                    text = "Yeterince şikayet gelen soru incelenmek üzere havuzdan çekilir.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

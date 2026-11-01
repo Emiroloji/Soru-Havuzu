@@ -70,9 +70,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.soruhavuzu.data.QuestionWithDetails
-import com.example.soruhavuzu.data.SessionType
-import com.example.soruhavuzu.domain.CalibrationEngine
+import com.example.soruhavuzu.data.remote.CatalogExamDto
+import com.example.soruhavuzu.data.remote.UserDto
+import com.example.soruhavuzu.ui.practice.HomeState
 import com.example.ui.theme.AcademicTeal
 import com.example.ui.theme.CalibrationAmber
 import com.example.ui.theme.InkNavy
@@ -84,22 +84,23 @@ import com.example.ui.theme.difficultyLabelForBucket
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomePoolScreen(
-    uiState: SoruHavuzuUiState,
+    user: UserDto,
+    state: HomeState,
+    onSelectExam: (String) -> Unit,
+    onSelectSubject: (String?) -> Unit,
+    onSelectTopic: (String?) -> Unit,
     onSelectSingleBucket: (Int) -> Unit,
     onSelectRange: (Int, Int) -> Unit,
-    onSelectTopic: (String?) -> Unit,
     onToggleIncludeSolved: (Boolean) -> Unit,
     onStartPractice: () -> Unit,
     onStartChallenge: () -> Unit,
-    onStartReview: () -> Unit,
-    onOpenQuestionDirect: (Int) -> Unit
+    onOpenReview: () -> Unit,
+    onRetry: () -> Unit
 ) {
-    val profile = uiState.userProfile
-    val userTheta = profile?.globalTheta ?: 0.25
-    val userLevel10 = CalibrationEngine.thetaToDisplayLevel(userTheta)
-    val totalSolved = uiState.attempts.size
-    val totalCorrect = uiState.attempts.count { it.isCorrect }
-    val accuracyRate = if (totalSolved == 0) 0 else ((totalCorrect * 100) / totalSolved)
+    val stats = state.stats
+    val totalSolved = stats?.solvedCount ?: 0
+    val accuracyRate = if (totalSolved == 0) 0 else (stats!!.correctCount * 100) / totalSolved
+    val filter = state.filter
 
     LazyColumn(
         modifier = Modifier
@@ -108,38 +109,70 @@ fun HomePoolScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. HERO ATELIER BANNER WITH LIVE THETA & ELO CALIBRATION VISUAL
         item {
             AtelierHeroCard(
-                nickname = profile?.nickname ?: "MatematikGezgini",
-                targetExam = profile?.targetExam ?: "TYT",
-                reputation = profile?.reputation ?: 65,
-                userTheta = userTheta,
-                userLevel10 = userLevel10,
+                nickname = user.nickname,
+                targetExam = state.catalog.firstOrNull { it.id == user.targetExamId }?.code ?: "Sınav seçilmedi",
+                reputation = user.reputation,
+                level = user.level,
                 totalSolved = totalSolved,
                 accuracyRate = accuracyRate
             )
         }
 
-        // 2. CORE FEATURE: "BANA 10 ÜZERİNDEN X ZORLUKTA SORU GETİR" SELECTOR CARD
+        if (state.error != null) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = state.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(onClick = onRetry) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Tekrar Dene")
+                        }
+                    }
+                }
+            }
+        }
+
+        // "BANA 10 ÜZERİNDEN X ZORLUKTA SORU GETİR"
         item {
             DifficultySelectorCard(
-                selectedMin = uiState.selectedMinBucket,
-                selectedMax = uiState.selectedMaxBucket,
-                bucketCounts = uiState.bucketCounts,
-                topics = uiState.topics,
-                selectedTopicId = uiState.selectedTopicId,
-                includeSolved = uiState.includeSolvedInPractice,
-                matchingCount = uiState.matchingPracticeQuestionsCount,
+                selectedMin = filter.minBucket,
+                selectedMax = filter.maxBucket,
+                bucketCounts = state.bucketCounts.associate {
+                    it.bucket to if (filter.includeSolved) it.total else it.unsolved
+                },
+                exams = state.catalog,
+                selectedExam = state.selectedExam,
+                selectedSubjectId = filter.subjectId,
+                selectedTopicId = filter.topicId,
+                includeSolved = filter.includeSolved,
+                matchingCount = state.matchingCount,
+                isLoading = state.isLoading,
                 onSelectSingleBucket = onSelectSingleBucket,
                 onSelectRange = onSelectRange,
+                onSelectExam = onSelectExam,
+                onSelectSubject = onSelectSubject,
                 onSelectTopic = onSelectTopic,
                 onToggleIncludeSolved = onToggleIncludeSolved,
                 onStartPractice = onStartPractice
             )
         }
 
-        // 3. "BENİ ZORLA" (CHALLENGE) & "YANLIŞLARIM / FAVORİLER" QUICK MODES
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -147,93 +180,14 @@ fun HomePoolScreen(
             ) {
                 ChallengeModeCard(
                     modifier = Modifier.weight(1f),
-                    userTheta = userTheta,
+                    level = user.level,
                     onStartChallenge = onStartChallenge
                 )
                 ReviewQuickCard(
                     modifier = Modifier.weight(1f),
-                    wrongCount = uiState.wrongNoteQuestions.size,
-                    favCount = uiState.favoriteQuestions.size,
-                    onStartReview = onStartReview
-                )
-            }
-        }
-
-        // 4. CANLI SORU HAVUZU ÖNİZLEMESİ (Zorluk Kovası & Gerçek Kalibrasyon Verisi)
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Seçili Havuzdaki Sorular (${uiState.selectedMinBucket}–${uiState.selectedMaxBucket} Zorluk)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Yükleyen başlangıç puanı ve gerçek çözümlerle kalibre edilen güncel zorluklar",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        val previewQuestions = uiState.activeQuestions.filter { q ->
-            val inBucket = q.question.difficultyBucket in uiState.selectedMinBucket..uiState.selectedMaxBucket
-            val inTopic = uiState.selectedTopicId == null || q.topic.id == uiState.selectedTopicId
-            inBucket && inTopic
-        }
-
-        if (previewQuestions.isEmpty()) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Bu filtrede henüz soru yok",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Zorluk aralığını genişletebilir veya tüm konular seçeneğine geçebilirsiniz.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = {
-                                onSelectTopic(null)
-                                onSelectRange(1, 10)
-                            },
-                            modifier = Modifier.testTag("reset_filter_button")
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Tüm Zorlukları Göster (1–10)")
-                        }
-                    }
-                }
-            }
-        } else {
-            items(previewQuestions, key = { it.question.id }) { item ->
-                PoolQuestionPreviewRow(
-                    item = item,
-                    userTheta = userTheta,
-                    onClickSolve = {
-                        onOpenQuestionDirect(item.question.difficultyBucket)
-                    }
+                    wrongCount = stats?.wrongNoteCount ?: 0,
+                    favCount = stats?.favoriteCount ?: 0,
+                    onStartReview = onOpenReview
                 )
             }
         }
@@ -245,8 +199,7 @@ private fun AtelierHeroCard(
     nickname: String,
     targetExam: String,
     reputation: Int,
-    userTheta: Double,
-    userLevel10: Double,
+    level: Double,
     totalSolved: Int,
     accuracyRate: Int
 ) {
@@ -351,13 +304,13 @@ private fun AtelierHeroCard(
                                 color = Color(0xFF99F6E4)
                             )
                             Text(
-                                text = "$userLevel10 / 10",
+                                text = "$level / 10",
                                 style = MaterialTheme.typography.titleLarge,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "θ = ${"%+.2f".format(userTheta)}",
+                                text = "çözdükçe güncellenir",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White.copy(alpha = 0.8f)
                             )
@@ -428,12 +381,17 @@ private fun DifficultySelectorCard(
     selectedMin: Int,
     selectedMax: Int,
     bucketCounts: Map<Int, Int>,
-    topics: List<com.example.soruhavuzu.data.TopicEntity>,
+    exams: List<CatalogExamDto>,
+    selectedExam: CatalogExamDto?,
+    selectedSubjectId: String?,
     selectedTopicId: String?,
     includeSolved: Boolean,
     matchingCount: Int,
+    isLoading: Boolean,
     onSelectSingleBucket: (Int) -> Unit,
     onSelectRange: (Int, Int) -> Unit,
+    onSelectExam: (String) -> Unit,
+    onSelectSubject: (String?) -> Unit,
     onSelectTopic: (String?) -> Unit,
     onToggleIncludeSolved: (Boolean) -> Unit,
     onStartPractice: () -> Unit
@@ -478,7 +436,7 @@ private fun DifficultySelectorCard(
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Text(
-                        text = "$matchingCount Soru Hazır",
+                        text = if (isLoading) "Yükleniyor…" else "$matchingCount Soru Hazır",
                         style = MaterialTheme.typography.labelMedium,
                         color = activeColor,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
@@ -561,34 +519,37 @@ private fun DifficultySelectorCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Topic Filter Chips
-            Text(
-                text = "Konu Filtresi (TYT Matematik)",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            // Sınav -> Ders -> Konu filtresi
+            FilterChipRow(
+                label = "Sınav",
+                chips = exams.map { it.id to it.code },
+                selectedId = selectedExam?.id,
+                allLabel = null,
+                onSelect = { id -> id?.let(onSelectExam) },
+                tagPrefix = "exam_chip"
             )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = selectedTopicId == null,
-                    onClick = { onSelectTopic(null) },
-                    label = { Text("Tüm Konular") },
-                    modifier = Modifier.testTag("topic_chip_all")
+            val subjects = selectedExam?.subjects.orEmpty()
+            if (subjects.size > 1) {
+                FilterChipRow(
+                    label = "Ders",
+                    chips = subjects.map { it.id to it.name },
+                    selectedId = selectedSubjectId,
+                    allLabel = "Tüm Dersler",
+                    onSelect = onSelectSubject,
+                    tagPrefix = "subject_chip"
                 )
-                topics.forEach { topic ->
-                    FilterChip(
-                        selected = selectedTopicId == topic.id,
-                        onClick = { onSelectTopic(topic.id) },
-                        label = { Text(topic.name) },
-                        modifier = Modifier.testTag("topic_chip_${topic.id}")
-                    )
-                }
+            }
+            val topics = (if (subjects.size == 1) subjects.first() else subjects.firstOrNull { it.id == selectedSubjectId })
+                ?.topics.orEmpty()
+            if (topics.isNotEmpty()) {
+                FilterChipRow(
+                    label = "Konu",
+                    chips = topics.map { it.id to "${it.name} (${it.activeQuestionCount})" },
+                    selectedId = selectedTopicId,
+                    allLabel = "Tüm Konular",
+                    onSelect = onSelectTopic,
+                    tagPrefix = "topic_chip"
+                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -614,6 +575,7 @@ private fun DifficultySelectorCard(
 
             Button(
                 onClick = onStartPractice,
+                enabled = matchingCount > 0,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
@@ -641,7 +603,7 @@ private fun DifficultySelectorCard(
 @Composable
 private fun ChallengeModeCard(
     modifier: Modifier = Modifier,
-    userTheta: Double,
+    level: Double,
     onStartChallenge: () -> Unit
 ) {
     Card(
@@ -671,7 +633,7 @@ private fun ChallengeModeCard(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Seviyene (θ=${"%+.2f".format(userTheta)}) göre başarı olasılığı ≈%60 olan soruları seçer.",
+                text = "Seviyene ($level/10) göre çözme ihtimalin ≈%60 olan soruları seçer.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
             )
@@ -719,7 +681,7 @@ private fun ReviewQuickCard(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "$wrongCount yanlış soru · $favCount favori (Çevrimdışı tekrar).",
+                text = "$wrongCount yanlış soru · $favCount favori.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f)
             )
@@ -734,99 +696,42 @@ private fun ReviewQuickCard(
 }
 
 @Composable
-private fun PoolQuestionPreviewRow(
-    item: QuestionWithDetails,
-    userTheta: Double,
-    onClickSolve: () -> Unit
+private fun FilterChipRow(
+    label: String,
+    chips: List<Pair<String, String>>,
+    selectedId: String?,
+    allLabel: String?,
+    onSelect: (String?) -> Unit,
+    tagPrefix: String
 ) {
-    val q = item.question
-    val bColor = difficultyColorForBucket(q.difficultyBucket)
-    val expectedProb = (CalibrationEngine.expectedSuccessProbability(userTheta, q.difficultyLogit) * 100).toInt()
-
-    Card(
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClickSolve() }
-            .testTag("pool_question_card_${q.id}"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        color = bColor,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = "Zorluk ${q.difficultyBucket}/10",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                    Text(
-                        text = item.topic.name,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                if (item.hasUserSolvedBefore) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Çözüldü",
-                            tint = Color(0xFF059669),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Çözüldü",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF059669)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = item.version.bodyText,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+        if (allLabel != null) {
+            FilterChip(
+                selected = selectedId == null,
+                onClick = { onSelect(null) },
+                label = { Text(allLabel) },
+                modifier = Modifier.testTag("${tagPrefix}_all")
             )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Calibration telemetry footer
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Yükleyen Puanı: ${q.uploaderRating}/10 · Çözüm: ${q.firstAttemptCount} (%${item.accuracyPercent} doğru)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "Senin Başarı Tahminin: %$expectedProb",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = bColor,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+        }
+        chips.forEach { (id, text) ->
+            FilterChip(
+                selected = selectedId == id,
+                onClick = { onSelect(id) },
+                label = { Text(text) },
+                modifier = Modifier.testTag("${tagPrefix}_$id")
+            )
         }
     }
+    Spacer(modifier = Modifier.height(10.dp))
 }
