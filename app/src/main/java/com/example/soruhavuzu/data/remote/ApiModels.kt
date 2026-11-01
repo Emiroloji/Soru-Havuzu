@@ -141,6 +141,49 @@ data class TopicMasteryDto(
 @JsonClass(generateAdapter = true)
 data class ReputationEventDto(val delta: Int, val reason: String, val createdAt: String)
 
+@JsonClass(generateAdapter = true)
+data class ReportDto(val reason: String, val note: String, val weight: Int, val reporterNickname: String, val createdAt: String)
+
+/** Moderatörün gördüğü tam soru: doğru cevap, çözüm, şık dağılımı ve açık şikayetler dahil. */
+@JsonClass(generateAdapter = true)
+data class ModerationItemDto(
+    val id: String,
+    val status: String,
+    val topicName: String,
+    val uploaderNickname: String,
+    val versionNumber: Int,
+    val bodyText: String,
+    val imageUrl: String?,
+    val options: List<String>,
+    val correctOptionIndex: Int,
+    val solutionText: String,
+    val uploaderRating: Int,
+    val difficultyBucket: Int,
+    val firstAttemptCount: Int,
+    val correctFirstCount: Int,
+    val optionSelectionCounts: List<Int>,
+    val keySuspect: Boolean,
+    val keySuspectReason: String?,
+    val weightedReportScore: Int,
+    val reports: List<ReportDto>,
+    val createdAt: String
+)
+
+@JsonClass(generateAdapter = true)
+data class RemoveRequest(val reason: String)
+
+@JsonClass(generateAdapter = true)
+data class NewVersionRequest(
+    val bodyText: String,
+    val options: List<String>,
+    val correctOptionIndex: Int,
+    val solutionText: String,
+    val editorNote: String
+)
+
+@JsonClass(generateAdapter = true)
+data class NewVersionResponse(val versionNumber: Int, val calibrationReset: Boolean)
+
 /** Şikayet nedenleri; name alanı backend'deki ReportReason ile aynı olmalı. */
 enum class ReportReason(val labelTr: String) {
     WRONG_KEY("Cevap anahtarı veya çözüm hatalı"),

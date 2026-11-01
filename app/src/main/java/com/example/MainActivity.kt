@@ -59,8 +59,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.soruhavuzu.SoruHavuzuApplication
 import com.example.soruhavuzu.data.remote.UserDto
 import com.example.soruhavuzu.ui.HomePoolScreen
+import com.example.soruhavuzu.ui.ModerationPanelScreen
 import com.example.soruhavuzu.ui.SolveSessionScreen
 import com.example.soruhavuzu.ui.UploadQuestionScreen
+import com.example.soruhavuzu.ui.moderation.ModerationViewModel
 import com.example.soruhavuzu.ui.practice.PracticeViewModel
 import com.example.soruhavuzu.ui.profile.ProfileScreen
 import com.example.soruhavuzu.ui.profile.ProfileViewModel
@@ -136,7 +138,8 @@ private fun MainScaffold(
     practiceViewModel: PracticeViewModel = viewModel(factory = PracticeViewModel.Factory),
     uploadViewModel: UploadViewModel = viewModel(factory = UploadViewModel.Factory),
     reviewViewModel: ReviewViewModel = viewModel(factory = ReviewViewModel.Factory),
-    profileViewModel: ProfileViewModel = viewModel(factory = ProfileViewModel.Factory)
+    profileViewModel: ProfileViewModel = viewModel(factory = ProfileViewModel.Factory),
+    moderationViewModel: ModerationViewModel = viewModel(factory = ModerationViewModel.Factory)
 ) {
     val app = LocalContext.current.applicationContext as SoruHavuzuApplication
     val home by practiceViewModel.home.collectAsStateWithLifecycle()
@@ -144,6 +147,7 @@ private fun MainScaffold(
     val upload by uploadViewModel.state.collectAsStateWithLifecycle()
     val review by reviewViewModel.state.collectAsStateWithLifecycle()
     val profile by profileViewModel.state.collectAsStateWithLifecycle()
+    val moderation by moderationViewModel.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(MainTab.HOME) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -157,7 +161,14 @@ private fun MainScaffold(
             MainTab.UPLOAD -> uploadViewModel.loadMyQuestions()
             MainTab.REVIEW -> reviewViewModel.load()
             MainTab.PROFILE -> profileViewModel.load()
+            MainTab.MODERATION -> moderationViewModel.load()
             else -> Unit
+        }
+    }
+    LaunchedEffect(moderation.message) {
+        moderation.message?.let {
+            snackbar.showSnackbar(it)
+            moderationViewModel.dismissMessage()
         }
     }
     LaunchedEffect(upload.message) {
@@ -257,20 +268,18 @@ private fun MainScaffold(
                         onRemoveWrongNote = reviewViewModel::removeFromWrongNotes,
                         onRetry = reviewViewModel::load
                     )
-                    MainTab.MODERATION -> ComingSoon("Moderasyon", "İnceleme kuyruğu ekranı bir sonraki adımda geliyor.")
+                    MainTab.MODERATION -> ModerationPanelScreen(
+                        state = moderation,
+                        resolveImageUrl = app::absoluteUrl,
+                        onApproveQuestion = moderationViewModel::approve,
+                        onRemoveQuestion = moderationViewModel::remove,
+                        onCreateNewVersion = moderationViewModel::createVersion,
+                        onRetry = moderationViewModel::load
+                    )
                     MainTab.PROFILE -> ProfileScreen(user = user, state = profile, onLogout = onLogout)
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ComingSoon(title: String, message: String) {
-    CenteredMessage {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -79,4 +79,16 @@ interface SoruHavuzuApi {
 
     @GET("me/reputation")
     suspend fun reputation(): List<ReputationEventDto>
+
+    @GET("moderation/queue")
+    suspend fun moderationQueue(): List<ModerationItemDto>
+
+    @POST("moderation/questions/{id}/approve")
+    suspend fun approve(@Path("id") questionId: String)
+
+    @POST("moderation/questions/{id}/remove")
+    suspend fun remove(@Path("id") questionId: String, @Body body: RemoveRequest)
+
+    @POST("moderation/questions/{id}/versions")
+    suspend fun createVersion(@Path("id") questionId: String, @Body body: NewVersionRequest): NewVersionResponse
 }
