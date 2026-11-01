@@ -9,11 +9,11 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "app.soruhavuzu"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.soruhavuzu.kxmzqp"
+    applicationId = "app.soruhavuzu"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
