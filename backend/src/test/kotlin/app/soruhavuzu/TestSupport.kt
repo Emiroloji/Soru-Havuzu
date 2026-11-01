@@ -66,6 +66,9 @@ object UnusedQuestionStore : QuestionStore {
     override suspend fun bucketCounts(userId: UUID, filter: QuestionFilter) = unused()
     override suspend fun userStats(userId: UUID) = unused()
     override suspend fun toggleFavorite(userId: UUID, questionId: UUID) = unused()
+    override suspend fun reviewQuestions(userId: UUID, favorites: Boolean) = unused()
+    override suspend fun clearWrongNote(userId: UUID, questionId: UUID) = unused()
+    override suspend fun topicMastery(userId: UUID) = unused()
 }
 
 /** Testcontainers ile tüm test sınıflarının paylaştığı tek Postgres; migration'lar bir kez çalışır. */
@@ -104,4 +107,6 @@ class InMemoryUserStore(private val examIds: Set<String> = setOf("exam_kpss")) :
         users.firstOrNull { it.first.email.equals(email, ignoreCase = true) }
 
     override suspend fun examExists(examId: String): Boolean = examId in examIds
+
+    override suspend fun reputationEvents(userId: UUID) = emptyList<app.soruhavuzu.users.ReputationEvent>()
 }

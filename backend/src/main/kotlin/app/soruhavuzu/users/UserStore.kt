@@ -35,7 +35,10 @@ interface UserStore {
     /** Giriş için kullanıcıyı şifre hash'iyle birlikte döner. */
     suspend fun findByEmailWithPassword(email: String): Pair<User, String>?
     suspend fun examExists(examId: String): Boolean
+    suspend fun reputationEvents(userId: UUID): List<ReputationEvent>
 }
+
+data class ReputationEvent(val delta: Int, val reason: String, val createdAt: java.time.Instant)
 
 class PostgresUserStore(private val dataSource: DataSource) : UserStore {
 
@@ -96,6 +99,21 @@ class PostgresUserStore(private val dataSource: DataSource) : UserStore {
             conn.prepareStatement("SELECT 1 FROM exams WHERE id = ?").use { st ->
                 st.setString(1, examId)
                 st.executeQuery().use { it.next() }
+            }
+        }
+    }
+
+    override suspend fun reputationEvents(userId: UUID): List<ReputationEvent> = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT delta, reason, created_at FROM reputation_events WHERE user_id = ? ORDER BY created_at DESC LIMIT 100"
+            ).use { st ->
+                st.setObject(1, userId)
+                st.executeQuery().use { rs ->
+                    generateSequence { if (rs.next()) rs else null }
+                        .map { ReputationEvent(it.getInt(1), it.getString(2), it.getTimestamp(3).toInstant()) }
+                        .toList()
+                }
             }
         }
     }

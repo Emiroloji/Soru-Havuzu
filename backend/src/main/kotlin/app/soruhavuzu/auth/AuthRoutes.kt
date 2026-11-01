@@ -52,6 +52,9 @@ data class UserDto(
 @Serializable
 data class AuthResponse(val token: String, val user: UserDto)
 
+@Serializable
+data class ReputationEventDto(val delta: Int, val reason: String, val createdAt: String)
+
 fun User.toDto() = UserDto(
     id.toString(), email, nickname, role, reputation, theta, CalibrationEngine.thetaToLevel(theta), birthYear, targetExamId
 )
@@ -110,6 +113,11 @@ fun Route.authRoutes(users: UserStore, hasher: PasswordHasher, tokens: TokenServ
     }
 
     authenticate(AUTH_JWT) {
+        get("/me/reputation") {
+            val auth = call.principal<AuthUser>()!!
+            call.respond(users.reputationEvents(auth.id).map { ReputationEventDto(it.delta, it.reason, it.createdAt.toString()) })
+        }
+
         get("/me") {
             val auth = call.principal<AuthUser>()!!
             val user = users.findById(auth.id)

@@ -162,6 +162,8 @@ class ModerationFlowTest {
 
         assertEquals(HttpStatusCode.OK, client.get("/questions/$questionId") { bearerAuth(solver.token) }.status)
         assertEquals(5, reputationOf(uploader))
+        val history = client.get("/me/reputation") { bearerAuth(uploader.token) }.body<List<app.soruhavuzu.auth.ReputationEventDto>>()
+        assertEquals(5, history.single().delta)
         assertFalse(client.queue(mod).any { it.id == questionId })
     }
 

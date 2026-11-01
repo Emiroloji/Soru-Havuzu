@@ -6,12 +6,14 @@ import app.soruhavuzu.auth.AUTH_JWT
 import app.soruhavuzu.auth.AuthUser
 import app.soruhavuzu.domain.CalibrationEngine
 import app.soruhavuzu.validate
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RoutingCall
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
@@ -44,6 +46,17 @@ data class QuestionDto(
     val firstAttemptCount: Int,
     val alreadySolved: Boolean,
     val isFavorite: Boolean
+)
+
+@Serializable
+data class TopicMasteryDto(
+    val examCode: String,
+    val subjectName: String,
+    val topicName: String,
+    /** Bu konudaki 1..10 seviye. */
+    val level: Double,
+    val solvedCount: Int,
+    val correctCount: Int
 )
 
 @Serializable
@@ -101,6 +114,25 @@ fun Route.questionRoutes(questions: QuestionStore) {
     }
 
     authenticate(AUTH_JWT) {
+        /** kind=wrong: yanlışlarım, kind=favorite: favoriler. */
+        get("/me/review") {
+            val favorites = when (call.request.queryParameters["kind"]) {
+                "wrong" -> false
+                "favorite" -> true
+                else -> throw ValidationException("kind wrong veya favorite olmalı")
+            }
+            call.respond(questions.reviewQuestions(call.userId(), favorites).map { it.toDto() })
+        }
+
+        get("/me/topics") {
+            call.respond(questions.topicMastery(call.userId()).map {
+                TopicMasteryDto(
+                    it.examCode, it.subjectName, it.topicName,
+                    CalibrationEngine.thetaToLevel(it.theta), it.solvedCount, it.correctCount
+                )
+            })
+        }
+
         get("/me/stats") {
             val stats = questions.userStats(call.userId())
             call.respond(UserStatsDto(stats.solvedCount, stats.correctCount, stats.wrongNoteCount, stats.favoriteCount))
@@ -154,6 +186,11 @@ fun Route.questionRoutes(questions: QuestionStore) {
                 val question = questions.findForSolving(call.questionId(), call.userId())
                     ?: throw NotFoundException("Soru bulunamadı")
                 call.respond(question.toDto())
+            }
+
+            delete("/{id}/wrong-note") {
+                questions.clearWrongNote(call.userId(), call.questionId())
+                call.respond(HttpStatusCode.NoContent)
             }
 
             post("/{id}/favorite") {

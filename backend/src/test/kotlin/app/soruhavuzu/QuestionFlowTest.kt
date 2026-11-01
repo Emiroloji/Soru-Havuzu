@@ -12,6 +12,7 @@ import app.soruhavuzu.users.PostgresUserStore
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -266,6 +267,32 @@ class QuestionFlowTest {
             HttpStatusCode.NotFound,
             client.post("/questions/${UUID.randomUUID()}/favorite") { bearerAuth(token) }.status
         )
+    }
+
+    @Test
+    fun `yanlislarim ve favoriler listelenir, yanlislarimdan cikarilabilir`() = testApplication {
+        val client = setup()
+        val token = client.newUser()
+        val question = assertNotNull(client.next(token, "examId=exam_tyt").question)
+        val wrong = (correctIndexOf(question.id) + 1) % question.options.size
+        client.answer(token, question.id, wrong)
+        client.post("/questions/${question.id}/favorite") { bearerAuth(token) }
+
+        suspend fun review(kind: String) = client.get("/me/review?kind=$kind") { bearerAuth(token) }.body<List<QuestionDto>>()
+        assertEquals(listOf(question.id), review("wrong").map { it.id })
+        assertTrue(review("favorite").single().isFavorite)
+        assertFalse(client.get("/me/review?kind=wrong") { bearerAuth(token) }.bodyAsText().contains("correct"))
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/questions/${question.id}/wrong-note") { bearerAuth(token) }.status)
+        assertTrue(review("wrong").isEmpty())
+        assertEquals(1, review("favorite").size, "yanlışlardan çıkarmak favoriyi silmemeli")
+        assertEquals(HttpStatusCode.BadRequest, client.get("/me/review?kind=baska") { bearerAuth(token) }.status)
+
+        val topics = client.get("/me/topics") { bearerAuth(token) }.body<List<app.soruhavuzu.questions.TopicMasteryDto>>()
+        assertEquals(question.topicName, topics.single().topicName)
+        assertEquals(1, topics.single().solvedCount)
+        assertTrue(topics.single().level < 5.5, "yanlış cevap konu seviyesini düşürmeli")
+        assertEquals(HttpStatusCode.OK, client.get("/me/reputation") { bearerAuth(token) }.status)
     }
 
     @Test

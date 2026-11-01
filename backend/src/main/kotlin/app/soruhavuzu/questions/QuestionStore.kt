@@ -82,7 +82,20 @@ interface QuestionStore {
     suspend fun userStats(userId: UUID): UserStats
     /** Favori işaretini tersine çevirir ve yeni durumu döner. Soru yayında değilse NotFoundException. */
     suspend fun toggleFavorite(userId: UUID, questionId: UUID): Boolean
+    /** Yanlışlarım (favorites = false) veya favoriler listesi; yalnızca yayındaki sorular. */
+    suspend fun reviewQuestions(userId: UUID, favorites: Boolean): List<QuestionForSolving>
+    suspend fun clearWrongNote(userId: UUID, questionId: UUID)
+    suspend fun topicMastery(userId: UUID): List<TopicMastery>
 }
+
+data class TopicMastery(
+    val examCode: String,
+    val subjectName: String,
+    val topicName: String,
+    val theta: Double,
+    val solvedCount: Int,
+    val correctCount: Int
+)
 
 /** Bir zorluk kovasındaki aktif soru sayısı ve bunlardan kullanıcının henüz çözmedikleri. */
 data class BucketCount(val bucket: Int, val total: Int, val unsolved: Int)
@@ -315,6 +328,66 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
                 st.setObject(1, userId)
                 st.setObject(2, questionId)
                 st.executeQuery().use { rs -> if (rs.next()) rs.getBoolean(1) else throw NotFoundException("Soru bulunamadı") }
+            }
+        }
+    }
+
+    override suspend fun reviewQuestions(userId: UUID, favorites: Boolean): List<QuestionForSolving> = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            val flag = if (favorites) "b.is_favorite" else "b.is_wrong_note"
+            conn.prepareStatement(
+                """
+                $SOLVING_SELECT
+                JOIN bookmarks b ON b.question_id = q.id AND b.user_id = me.id
+                WHERE q.status = 'ACTIVE' AND $flag
+                ORDER BY b.updated_at DESC
+                LIMIT 200
+                """.trimIndent()
+            ).use { st ->
+                st.setObject(1, userId)
+                st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.toQuestionForSolving() else null }.toList() }
+            }
+        }
+    }
+
+    override suspend fun clearWrongNote(userId: UUID, questionId: UUID): Unit = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "UPDATE bookmarks SET is_wrong_note = false, updated_at = now() WHERE user_id = ? AND question_id = ?"
+            ).use { st ->
+                st.setObject(1, userId)
+                st.setObject(2, questionId)
+                st.executeUpdate()
+            }
+        }
+    }
+
+    override suspend fun topicMastery(userId: UUID): List<TopicMastery> = withContext(Dispatchers.IO) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT e.code, s.name AS subject_name, t.name AS topic_name, m.theta, m.solved_count, m.correct_count
+                FROM topic_mastery m
+                JOIN topics t ON t.id = m.topic_id
+                JOIN subjects s ON s.id = t.subject_id
+                JOIN exams e ON e.id = s.exam_id
+                WHERE m.user_id = ?
+                ORDER BY e.order_index, s.order_index, t.order_index
+                """.trimIndent()
+            ).use { st ->
+                st.setObject(1, userId)
+                st.executeQuery().use { rs ->
+                    generateSequence { if (rs.next()) rs else null }.map {
+                        TopicMastery(
+                            examCode = it.getString("code"),
+                            subjectName = it.getString("subject_name"),
+                            topicName = it.getString("topic_name"),
+                            theta = it.getDouble("theta"),
+                            solvedCount = it.getInt("solved_count"),
+                            correctCount = it.getInt("correct_count")
+                        )
+                    }.toList()
+                }
             }
         }
     }
