@@ -298,8 +298,8 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
             conn.prepareStatement(
                 """
                 SELECT
-                    (SELECT count(*) FROM attempts WHERE user_id = ? AND is_first),
-                    (SELECT count(*) FROM attempts WHERE user_id = ? AND is_first AND is_correct),
+                    (SELECT count(*) FROM attempts WHERE user_id = ? AND is_first AND NOT voided),
+                    (SELECT count(*) FROM attempts WHERE user_id = ? AND is_first AND is_correct AND NOT voided),
                     (SELECT count(*) FROM bookmarks b JOIN questions q ON q.id = b.question_id
                      WHERE b.user_id = ? AND b.is_wrong_note AND q.status = 'ACTIVE'),
                     (SELECT count(*) FROM bookmarks b JOIN questions q ON q.id = b.question_id
@@ -759,7 +759,7 @@ class PostgresQuestionStore(private val dataSource: DataSource) : QuestionStore 
     /** Son ilk denemelerdeki üst üste doğru / yanlış serisi ("Beni Zorla" hedefini ayarlar). */
     private fun recentStreak(conn: Connection, userId: UUID): Pair<Int, Int> {
         val recent = conn.prepareStatement(
-            "SELECT is_correct FROM attempts WHERE user_id = ? AND is_first ORDER BY created_at DESC, id DESC LIMIT 3"
+            "SELECT is_correct FROM attempts WHERE user_id = ? AND is_first AND NOT voided ORDER BY created_at DESC, id DESC LIMIT 3"
         ).use { st ->
             st.setObject(1, userId)
             st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.getBoolean(1) else null }.toList() }

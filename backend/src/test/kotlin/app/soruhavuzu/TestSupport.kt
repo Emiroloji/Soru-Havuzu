@@ -32,7 +32,8 @@ fun testServices(
     // Bağlantı ayarı olmayan veri kaynağı: moderasyon uçlarını kullanmayan testlerde hiç açılmaz
     moderation: ModerationStore = ModerationStore(PGSimpleDataSource()),
     authRequestsPerMinute: Int = 1000,
-    uploadsPerHour: Int = 1000
+    uploadsPerHour: Int = 1000,
+    reportsPerHour: Int = 1000
 ) = Services(
     healthCheck = healthCheck,
     users = users,
@@ -40,6 +41,7 @@ fun testServices(
     images = images,
     moderation = moderation,
     uploadsPerHour = uploadsPerHour,
+    reportsPerHour = reportsPerHour,
     // Testlerde düşük maliyet: bcrypt 12 her hash'te ~250 ms sürer
     hasher = PasswordHasher(cost = 4),
     tokens = TokenService(testJwtConfig),

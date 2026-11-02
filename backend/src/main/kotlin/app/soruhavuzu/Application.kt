@@ -73,7 +73,8 @@ class Services(
     val hasher: PasswordHasher,
     val tokens: TokenService,
     val authRequestsPerMinute: Int = 10,
-    val uploadsPerHour: Int = 10
+    val uploadsPerHour: Int = 10,
+    val reportsPerHour: Int = 20
 )
 
 @Serializable
@@ -113,6 +114,9 @@ fun Application.module(services: Services) {
         exception<NotFoundException> { call, cause ->
             call.respond(HttpStatusCode.NotFound, ErrorResponse(cause.message ?: "Bulunamadı"))
         }
+        exception<RateLimitedException> { call, cause ->
+            call.respond(HttpStatusCode.TooManyRequests, ErrorResponse(cause.message ?: "Çok fazla istek"))
+        }
         exception<ConflictException> { call, cause ->
             call.respond(HttpStatusCode.Conflict, ErrorResponse(cause.message ?: "Çakışma"))
         }
@@ -146,6 +150,6 @@ fun Application.module(services: Services) {
         authRoutes(services.users, services.hasher, services.tokens)
         questionRoutes(services.questions)
         uploadRoutes(services.questions, services.images, services.uploadsPerHour)
-        moderationRoutes(services.moderation, services.users, services.images)
+        moderationRoutes(services.moderation, services.users, services.images, services.reportsPerHour)
     }
 }

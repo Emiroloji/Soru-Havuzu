@@ -51,14 +51,15 @@ class ModerationFlowTest {
 
     private class TestUser(val token: String, val id: UUID)
 
-    private fun ApplicationTestBuilder.setup(): HttpClient {
+    private fun ApplicationTestBuilder.setup(reportsPerHour: Int = 1000): HttpClient {
         application {
             module(
                 testServices(
                     users = PostgresUserStore(dataSource),
                     questions = PostgresQuestionStore(dataSource),
                     images = ImageStorage(imageDir),
-                    moderation = ModerationStore(dataSource)
+                    moderation = ModerationStore(dataSource),
+                    reportsPerHour = reportsPerHour
                 )
             )
         }
@@ -270,6 +271,52 @@ class ModerationFlowTest {
             "SELECT v.option_selection_counts FROM questions q JOIN question_versions v ON v.id = q.current_version_id WHERE q.id = ?", qid
         ) { (it.getArray(1).array as Array<*>).toList() }
         assertEquals(listOf(0, 0, 0), counts, "yeni versiyonun şık sayıları sıfırdan başlamalı")
+    }
+
+    @Test
+    fun `anahtar duzeltilince eski anahtarla cozenlerin seviyesi geri verilir, ikinci duzeltmede tekrar verilmez`() = testApplication {
+        val client = setup()
+        val question = client.upload(client.user(reputation = 60)) // anahtar: 0 (Karadeniz)
+        val solver = client.user()
+        fun theta() = query("SELECT theta FROM users WHERE id = ?", solver.id) { it.getDouble(1) }
+
+        // Çözen 1. şıkkı seçiyor; eski anahtara göre yanlış sayılıp seviyesi düşüyor
+        client.post("/questions/$question/attempts") {
+            bearerAuth(solver.token); contentType(ContentType.Application.Json); setBody(AttemptRequest(1))
+        }
+        assertTrue(theta() < 0.0)
+        val mod = client.user(role = "MODERATOR")
+
+        fun fix(correct: Int) = NewVersionRequest(
+            bodyText = "Anahtar testi ${UUID.randomUUID()}: Türkiye'de en fazla yağış alan bölge hangisidir?",
+            options = listOf("Karadeniz", "İç Anadolu", "Güneydoğu Anadolu"),
+            correctOptionIndex = correct,
+            solutionText = "Karadeniz Bölgesi, nemli hava kütlelerinin dağlara çarpmasıyla en çok yağışı alır.",
+            editorNote = "Anahtar düzeltildi"
+        )
+        val first = client.moderate(mod, "$question/versions", fix(correct = 1)).body<NewVersionResponse>()
+        assertEquals(1, first.correctedUsers)
+        assertEquals(0.0, theta(), 1e-9)
+        val stats = client.get("/me/stats") { bearerAuth(solver.token) }.body<app.soruhavuzu.questions.UserStatsDto>()
+        assertEquals(0, stats.solvedCount, "geçersiz deneme istatistikte sayılmamalı")
+        val topics = client.get("/me/topics") { bearerAuth(solver.token) }.body<List<app.soruhavuzu.questions.TopicMasteryDto>>()
+        assertEquals(0, topics.single().solvedCount)
+
+        val second = client.moderate(mod, "$question/versions", fix(correct = 2)).body<NewVersionResponse>()
+        assertEquals(0, second.correctedUsers, "aynı deneme iki kez geri alınmamalı")
+        assertEquals(0.0, theta(), 1e-9)
+    }
+
+    @Test
+    fun `saatlik sikayet siniri asilinca 429 doner`() = testApplication {
+        val client = setup(reportsPerHour = 2)
+        val uploader = client.user(reputation = 60)
+        val reporter = client.user()
+        val questions = List(3) { client.upload(uploader) }
+
+        assertEquals(HttpStatusCode.Created, client.report(reporter, questions[0]).status)
+        assertEquals(HttpStatusCode.Created, client.report(reporter, questions[1]).status)
+        assertEquals(HttpStatusCode.TooManyRequests, client.report(reporter, questions[2]).status)
     }
 
     @Test

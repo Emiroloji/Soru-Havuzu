@@ -3,6 +3,7 @@ package app.soruhavuzu.moderation
 import app.soruhavuzu.ConflictException
 import app.soruhavuzu.ForbiddenException
 import app.soruhavuzu.NotFoundException
+import app.soruhavuzu.RateLimitedException
 import app.soruhavuzu.domain.CalibrationEngine
 import app.soruhavuzu.users.ReputationLedger
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +60,12 @@ data class VersionEdit(
     val editorNote: String
 )
 
-data class VersionResult(val versionNumber: Int, val calibrationReset: Boolean)
+data class VersionResult(
+    val versionNumber: Int,
+    val calibrationReset: Boolean,
+    /** Seviyesi geri düzeltilen (eski anahtarla çözmüş) kullanıcı sayısı. */
+    val correctedUsers: Int
+)
 
 class ModerationStore(private val dataSource: DataSource) {
 
@@ -67,10 +73,30 @@ class ModerationStore(private val dataSource: DataSource) {
      * Şikayet kaydeder. Ağırlıklı skor eşiği aşarsa ya da telif şikayetiyse
      * yayındaki soru FLAGGED olur ve havuzdan çekilir. Dönen değer: soru işaretlendi mi.
      */
-    suspend fun report(reporterId: UUID, questionId: UUID, reason: ReportReason, note: String, weight: Int): Boolean =
+    suspend fun report(
+        reporterId: UUID,
+        questionId: UUID,
+        reason: ReportReason,
+        note: String,
+        weight: Int,
+        maxPerHour: Int
+    ): Boolean =
         transaction { conn ->
             val (status, score) = lockQuestion(conn, questionId) { it.getString("status") to it.getInt("weighted_report_score") }
             if (status != "ACTIVE" && status != "FLAGGED") throw NotFoundException("Soru bulunamadı")
+
+            // Şikayet edeni kilitleyip son bir saati say: toplu şikayetle soruları havuzdan düşürmeyi zorlaştırır
+            conn.prepareStatement("SELECT 1 FROM users WHERE id = ? FOR UPDATE").use { st ->
+                st.setObject(1, reporterId)
+                st.executeQuery().use { }
+            }
+            val lastHour = conn.prepareStatement(
+                "SELECT count(*) FROM reports WHERE reporter_id = ? AND created_at > now() - interval '1 hour'"
+            ).use { st ->
+                st.setObject(1, reporterId)
+                st.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
+            }
+            if (lastHour >= maxPerHour) throw RateLimitedException("Bir saatte en fazla $maxPerHour şikayet gönderebilirsin")
 
             try {
                 conn.prepareStatement(
@@ -272,6 +298,8 @@ class ModerationStore(private val dataSource: DataSource) {
             throw e
         }
 
+        val correctedUsers = if (answerChanged) voidFirstAttempts(conn, questionId) else 0
+
         val reporters = resolveOpenReports(conn, questionId, moderatorId, "RESOLVED_FIXED")
         reporters.forEach {
             ReputationLedger.add(conn, it, ReputationLedger.VALID_REPORT, "Şikayetin haklı bulundu, soru düzeltildi", questionId)
@@ -279,7 +307,50 @@ class ModerationStore(private val dataSource: DataSource) {
         if (current.status == "IN_REVIEW") {
             ReputationLedger.add(conn, current.uploaderId, ReputationLedger.QUESTION_PUBLISHED, "Sorun düzeltilerek yayına alındı", questionId)
         }
-        VersionResult(versionNumber, answerChanged)
+        VersionResult(versionNumber, answerChanged, correctedUsers)
+    }
+
+    /**
+     * Eski şıklar/anahtarla yapılmış ilk denemeleri geçersiz sayar: her denemenin kullanıcının genel
+     * seviyesine (θ) etkisi geri alınır, konu sayaçları düşülür. Daha önce geçersiz sayılmış denemelere
+     * dokunulmaz, böylece anahtar ikinci kez düzeltilse de etki iki kez geri alınmaz.
+     * Konu bazındaki θ değişimi saklanmadığı için konu seviyesi geri alınamaz; yalnızca sayaçlar düzelir.
+     * Soru satırı çağıran tarafından kilitli olmalı (çözüm kaydıyla aynı kilit sırası: önce soru, sonra kullanıcılar).
+     */
+    private fun voidFirstAttempts(conn: Connection, questionId: UUID): Int {
+        conn.prepareStatement(
+            """
+            UPDATE users u
+            SET theta = greatest(?, least(?, u.theta - (a.user_theta_after - a.user_theta_before)))
+            FROM attempts a
+            WHERE a.question_id = ? AND a.is_first AND NOT a.voided AND a.user_id = u.id
+            """.trimIndent()
+        ).use { st ->
+            st.setDouble(1, CalibrationEngine.LOGIT_MIN)
+            st.setDouble(2, CalibrationEngine.LOGIT_MAX)
+            st.setObject(3, questionId)
+            st.executeUpdate()
+        }
+        conn.prepareStatement(
+            """
+            UPDATE topic_mastery m
+            SET solved_count = greatest(0, m.solved_count - 1),
+                correct_count = greatest(0, m.correct_count - CASE WHEN a.is_correct THEN 1 ELSE 0 END)
+            FROM attempts a
+            JOIN questions q ON q.id = a.question_id
+            WHERE a.question_id = ? AND a.is_first AND NOT a.voided
+              AND m.user_id = a.user_id AND m.topic_id = q.topic_id
+            """.trimIndent()
+        ).use { st ->
+            st.setObject(1, questionId)
+            st.executeUpdate()
+        }
+        return conn.prepareStatement(
+            "UPDATE attempts SET voided = true WHERE question_id = ? AND is_first AND NOT voided"
+        ).use { st ->
+            st.setObject(1, questionId)
+            st.executeUpdate()
+        }
     }
 
     /** Açık şikayetleri kapatır ve şikayet edenlerin id'lerini döner. */

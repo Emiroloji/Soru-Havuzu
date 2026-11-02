@@ -70,12 +70,12 @@ data class NewVersionRequest(
 )
 
 @Serializable
-data class NewVersionResponse(val versionNumber: Int, val calibrationReset: Boolean)
+data class NewVersionResponse(val versionNumber: Int, val calibrationReset: Boolean, val correctedUsers: Int)
 
 @Serializable
 data class OkResponse(val ok: Boolean = true)
 
-fun Route.moderationRoutes(moderation: ModerationStore, users: UserStore, images: ImageStorage) {
+fun Route.moderationRoutes(moderation: ModerationStore, users: UserStore, images: ImageStorage, maxReportsPerHour: Int) {
     authenticate(AUTH_JWT) {
         post("/questions/{id}/reports") {
             val reporter = call.currentUser(users)
@@ -86,7 +86,7 @@ fun Route.moderationRoutes(moderation: ModerationStore, users: UserStore, images
 
             // Doğrulayıcıların (itibar >= 200) şikayeti 2 kat sayılır
             val weight = if (Permissions.isVerifier(reporter.role, reporter.reputation)) 2 else 1
-            val flagged = moderation.report(reporter.id, call.questionId(), reason, req.note.trim(), weight)
+            val flagged = moderation.report(reporter.id, call.questionId(), reason, req.note.trim(), weight, maxReportsPerHour)
             call.respond(
                 HttpStatusCode.Created,
                 ReportResponse(flagged, if (flagged) "Soru incelemeye alındı" else "Şikayetin kaydedildi")
@@ -140,7 +140,7 @@ fun Route.moderationRoutes(moderation: ModerationStore, users: UserStore, images
                         editorNote = req.editorNote.trim()
                     )
                 )
-                call.respond(NewVersionResponse(result.versionNumber, result.calibrationReset))
+                call.respond(NewVersionResponse(result.versionNumber, result.calibrationReset, result.correctedUsers))
             }
         }
     }

@@ -12,6 +12,9 @@ class ForbiddenException(message: String) : RuntimeException(message)
 /** 409: istek mevcut bir kayıtla çakışıyor (ör. aynı soruya ikinci açık şikayet). */
 class ConflictException(message: String) : RuntimeException(message)
 
+/** 429: kullanıcı belirli bir süre içindeki işlem sınırını aştı. */
+class RateLimitedException(message: String) : RuntimeException(message)
+
 inline fun validate(condition: Boolean, message: () -> String) {
     if (!condition) throw ValidationException(message())
 }
