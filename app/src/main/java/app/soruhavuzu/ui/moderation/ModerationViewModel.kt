@@ -51,7 +51,8 @@ class ModerationViewModel(private val client: ApiClient) : ViewModel() {
         _state.update {
             it.copy(
                 message = if (result.calibrationReset) {
-                    "v${result.versionNumber} yayında. Anahtar değiştiği için sorunun zorluğu sıfırdan hesaplanacak."
+                    "v${result.versionNumber} yayında. Sorunun zorluğu sıfırdan hesaplanacak" +
+                        if (result.correctedUsers > 0) "; eski anahtarla çözen ${result.correctedUsers} kişinin seviyesi düzeltildi." else "."
                 } else {
                     "v${result.versionNumber} yayında."
                 }

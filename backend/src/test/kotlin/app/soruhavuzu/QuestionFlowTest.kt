@@ -91,6 +91,9 @@ class QuestionFlowTest {
         listOf("Türkçe", "Matematik", "Tarih", "Coğrafya", "Vatandaşlık").forEach { subject ->
             assertTrue((kpssBySubject[subject] ?: 0) >= 4, "KPSS $subject başlangıç soruları yüklenmeli")
         }
+        val ayt = catalog.first { it.code == "AYT" }
+        assertEquals(8, ayt.subjects.single().topics.size)
+        assertEquals(8, ayt.subjects.single().topics.sumOf { it.activeQuestionCount })
         val tytQuestions = catalog.first { it.code == "TYT" }.subjects.flatMap { it.topics }.sumOf { it.activeQuestionCount }
         assertEquals(12, tytQuestions)
     }

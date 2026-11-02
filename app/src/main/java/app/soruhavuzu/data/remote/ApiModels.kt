@@ -182,7 +182,7 @@ data class NewVersionRequest(
 )
 
 @JsonClass(generateAdapter = true)
-data class NewVersionResponse(val versionNumber: Int, val calibrationReset: Boolean)
+data class NewVersionResponse(val versionNumber: Int, val calibrationReset: Boolean, val correctedUsers: Int = 0)
 
 /** Şikayet nedenleri; name alanı backend'deki ReportReason ile aynı olmalı. */
 enum class ReportReason(val labelTr: String) {

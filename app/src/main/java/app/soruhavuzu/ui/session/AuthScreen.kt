@@ -37,11 +37,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
-/**
- * Kayıtta seçilebilen hedef sınavlar; id'ler backend kataloğundaki (V2__katalog.sql) ile aynı.
- * AYT'nin henüz konusu olmadığı için listede yok; konuları eklenince buraya da eklenmeli.
- */
-private val TARGET_EXAMS = listOf("exam_kpss" to "KPSS", "exam_tyt" to "TYT")
+/** Kayıtta seçilebilen hedef sınavlar; id'ler backend kataloğundaki (V2__katalog.sql) ile aynı. */
+private val TARGET_EXAMS = listOf("exam_kpss" to "KPSS", "exam_tyt" to "TYT", "exam_ayt" to "AYT")
 
 @Composable
 fun AuthScreen(
